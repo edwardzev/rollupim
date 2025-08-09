@@ -1,81 +1,174 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+  DialogDescription, DialogFooter, DialogTrigger
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import { MessageSquare as MessageSquareQuote, CheckCircle } from 'lucide-react';
-import { useInView } from 'react-intersection-observer';
 
+/* ----------------------------- constants ---------------------------------- */
+const PABBLY_WEBHOOK =
+  'https://connect.pabbly.com/workflow/sendwebhookdata/IjU3NjYwNTZhMDYzMDA0MzE1MjZhNTUzNTUxMzci_pc';
+
+// Must match the catalogs in CustomerDetailsSection.jsx
+const PRODUCT_CATALOG = [
+  { id: 'fabric',   name: 'רק בד מודפס',               price: 59 },
+  { id: 'stand',    name: 'רק סטנד',                   price: 99 },
+  { id: 'complete', name: 'ערכה מלאה להרכבה עצמית',     price: 149 },
+];
+
+const ADDON_CATALOG = [
+  { id: 'bag',       name: 'תיק נשיאה',     price: 0,  perUnit: false },
+  { id: 'assembly',  name: 'הרכבה מראש',    price: 19, perUnit: true  },
+  { id: 'shipping',  name: 'משלוח עם שליח', price: 49, perUnit: false },
+];
+
+/* --------------------------------- ui ------------------------------------- */
 const BulkOffer = () => {
   const { toast } = useToast();
+
   const [open, setOpen] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [sending, setSending] = useState(false);
   const [formData, setFormData] = useState({ name: '', phone: '', quantity: '' });
 
-  const { ref, inView } = useInView({
-    triggerOnce: false,
-    threshold: 0.1,
-  });
-
+  // Keep the banner visible reliably (center-right)
+  const [showBanner, setShowBanner] = useState(true);
   useEffect(() => {
-    const productSection = document.getElementById('products');
-    if (productSection && ref) {
-      ref(productSection);
-    }
-  }, [ref]);
+    const node = document.querySelector('#products');
+    if (!node) { setShowBanner(true); return; }
+    const obs = new IntersectionObserver(
+      ([entry]) => setShowBanner(entry.isIntersecting),
+      { root: null, threshold: 0.1 }
+    );
+    obs.observe(node);
+    return () => obs.disconnect();
+  }, []);
 
   const handleInputChange = (e) => {
     const { id, value } = e.target;
     setFormData(prev => ({ ...prev, [id]: value }));
   };
-  
-  const handleSubmit = (e) => {
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    const newLead = { ...formData, date: new Date().toISOString() };
-    const existingLeads = JSON.parse(localStorage.getItem('bulk_leads')) || [];
-    localStorage.setItem('bulk_leads', JSON.stringify([...existingLeads, newLead]));
-    
-    setSubmitted(true);
+    if (sending) return;
 
-    toast({
-      title: 'הפנייה נשלחה בהצלחה!',
-      description: 'ניצור איתך קשר בהקדם.',
-    });
+    const name = formData.name.trim();
+    const phone = formData.phone.trim();
+    const qty = Number(formData.quantity);
 
-    setTimeout(() => {
-      setOpen(false);
-      // Reset after modal closes
+    if (!name || !phone || !qty || qty <= 0) {
+      toast({
+        title: 'חסר מידע',
+        description: 'אנא מלאו שם, טלפון וכמות חיובית.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Build the SAME structured payload used at checkout:
+    // - full product/addon matrices (qty 0 since nothing selected here)
+    // - computed_units = requested quantity
+    // - file_urls = "" (none uploaded)
+    // - customer.address & customer.city included as null
+    // - total = 0 (no pricing for a lead)
+    const product_lines = PRODUCT_CATALOG.map(p => ({
+      id: p.id,
+      name: p.name,
+      price: p.price,
+      quantity: 0,
+    }));
+
+    const addon_lines = ADDON_CATALOG.map(a => ({
+      id: a.id,
+      name: a.name,
+      price: a.price,
+      quantity: 0,
+    }));
+
+    const payload = {
+      id: Date.now(),
+      products: product_lines,
+      addons: addon_lines,
+      computed_units: qty,
+      file_urls: '',
+      customer: {
+        name,
+        phone,
+        email: null,
+        address: null,
+        city: null,
+      },
+      total: 0,
+      date: new Date().toISOString(),
+    };
+
+    try {
+      setSending(true);
+
+      const res = await fetch(PABBLY_WEBHOOK, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(text || 'Webhook request failed');
+      }
+
+      setSubmitted(true);
+      toast({ title: 'הפנייה נשלחה בהצלחה!', description: 'ניצור איתך קשר בהקדם.' });
+
+      // Auto-close and reset
       setTimeout(() => {
-        setSubmitted(false);
-        setFormData({ name: '', phone: '', quantity: '' });
-      }, 500);
-    }, 2000);
+        setOpen(false);
+        setTimeout(() => {
+          setSubmitted(false);
+          setFormData({ name: '', phone: '', quantity: '' });
+        }, 500);
+      }, 1500);
+    } catch (err) {
+      toast({
+        title: 'שגיאה בשליחת הבקשה',
+        description: err.message || 'נסו שוב בעוד רגע.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
     <>
       <AnimatePresence>
-        {inView && (
+        {showBanner && (
           <motion.div
             initial={{ x: 100, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 100, opacity: 0 }}
             transition={{ duration: 0.5, ease: 'easeInOut' }}
-            className="fixed bottom-10 right-0 z-50"
+            className="fixed top-1/2 right-0 -translate-y-1/2 transform z-[9999]"
           >
             <Dialog open={open} onOpenChange={setOpen}>
               <DialogTrigger asChild>
-                <Button size="lg" className="rounded-r-none bg-blue-600 hover:bg-blue-700 text-white shadow-lg p-4 h-auto">
-                    <MessageSquareQuote className="h-6 w-6 ml-2" />
-                    <div>
-                        <p className="font-bold">צריך יותר מ-3 יחידות?</p>
-                        <p className="text-sm">קבל הצעה מיוחדת</p>
-                    </div>
+                <Button
+                  size="lg"
+                  className="rounded-l-xl bg-blue-600 hover:bg-blue-700 text-white shadow-2xl p-6 px-7 h-auto w-[320px] md:w-[280px] text-left"
+                >
+                  <MessageSquareQuote className="h-8 w-8 ml-3" />
+                  <div>
+                    <p className="font-bold text-lg">צריך יותר מ-3 יחידות?</p>
+                    <p className="text-base opacity-90">קבל הצעה מיוחדת</p>
+                  </div>
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-[425px]">
+
+              <DialogContent className="sm:max-w-[480px] bg-white">
                 {!submitted ? (
                   <>
                     <DialogHeader>
@@ -84,33 +177,66 @@ const BulkOffer = () => {
                         השאירו פרטים ונחזור אליכם עם הצעה משתלמת במיוחד!
                       </DialogDescription>
                     </DialogHeader>
+
                     <form onSubmit={handleSubmit}>
                       <div className="grid gap-4 py-4">
                         <div className="grid grid-cols-4 items-center gap-4">
                           <Label htmlFor="name" className="text-right">שם</Label>
-                          <Input id="name" value={formData.name} onChange={handleInputChange} className="col-span-3" required />
+                          <Input
+                            id="name"
+                            value={formData.name}
+                            onChange={handleInputChange}
+                            className="col-span-3"
+                            required
+                          />
                         </div>
+
                         <div className="grid grid-cols-4 items-center gap-4">
                           <Label htmlFor="phone" className="text-right">טלפון</Label>
-                          <Input id="phone" value={formData.phone} onChange={handleInputChange} className="col-span-3" required />
+                          <Input
+                            id="phone"
+                            value={formData.phone}
+                            onChange={handleInputChange}
+                            className="col-span-3"
+                            required
+                          />
                         </div>
+
                         <div className="grid grid-cols-4 items-center gap-4">
                           <Label htmlFor="quantity" className="text-right">כמות רולאפים</Label>
-                          <Input id="quantity" type="number" value={formData.quantity} onChange={handleInputChange} className="col-span-3" required />
+                          <Input
+                            id="quantity"
+                            type="number"
+                            inputMode="numeric"
+                            min={1}
+                            value={formData.quantity}
+                            onChange={handleInputChange}
+                            className="col-span-3"
+                            required
+                          />
                         </div>
                       </div>
+
                       <DialogFooter>
-                        <Button type="submit">שלח בקשה</Button>
+                        <Button type="submit" disabled={sending}>
+                          {sending ? 'שולח…' : 'שלח בקשה'}
+                        </Button>
                       </DialogFooter>
                     </form>
                   </>
                 ) : (
                   <div className="flex flex-col items-center justify-center text-center p-8">
-                    <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 260, damping: 20 }}>
+                    <motion.div
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+                    >
                       <CheckCircle className="h-20 w-20 text-green-500 mb-4" />
                     </motion.div>
                     <h3 className="text-2xl font-bold mb-2">תודה!</h3>
-                    <p className="text-gray-600">הפנייה שלך נשלחה בהצלחה. נחזור אליך בהקדם!</p>
+                    <p className="text-gray-600">
+                      הפנייה שלך נשלחה בהצלחה. נחזור אליך בהקדם!
+                    </p>
                   </div>
                 )}
               </DialogContent>
