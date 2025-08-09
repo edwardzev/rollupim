@@ -17,55 +17,87 @@ const PreviewSection = () => {
     localStorage.removeItem('file_quality_status');
   }, []);
 
-  const handleImageUpload = (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      const allowedFormats = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
-      if (allowedFormats.includes(file.type)) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          setPreviewImage(e.target.result);
-          
-          const img = new Image();
-          img.onload = () => {
-            const issues = [];
-            const aspectRatio = img.height / img.width;
+  const handleImageUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-            if (Math.abs(aspectRatio - REQUIRED_ASPECT_RATIO) > 0.1) { // Allow 10% tolerance
-              issues.push(`הפרופורציות לא מתאימות (צריך יחס של 200/85)`);
-            }
-            if (img.width < MIN_WIDTH || img.height < MIN_HEIGHT) {
-              issues.push(`הרזולוציה נמוכה מדי (נדרש לפחות ${MIN_WIDTH}x${MIN_HEIGHT} פיקסלים)`);
-            }
+    // Type & size
+    const ALLOWED = ['image/jpeg','image/jpg','image/png','image/webp','application/pdf'];
+    const MAX_MB = 10;
+    if (!ALLOWED.includes(file.type)) {
+      setFileQuality({ status: 'bad', issues: ['פורמט הקובץ אינו נתמך (PDF, JPG, PNG, WEBP).'] });
+      localStorage.setItem('file_quality_status', 'bad');
+      setPreviewImage(null);
+      toast({ title: 'קובץ לא נתמך', description: 'PDF, JPG, PNG, WEBP בלבד.', variant: 'destructive' });
+      return;
+    }
+    if (file.size > MAX_MB * 1024 * 1024) {
+      setFileQuality({ status: 'bad', issues: [`קובץ גדול מדי (מקס׳ ${MAX_MB}MB).`] });
+      localStorage.setItem('file_quality_status', 'bad');
+      setPreviewImage(null);
+      toast({ title: 'קובץ גדול מדי', description: `מקס׳ ${MAX_MB}MB`, variant: 'destructive' });
+      return;
+    }
 
-            if (issues.length === 0) {
-              setFileQuality({ status: 'good', message: "איכות הקובץ מעולה ומתאימה להדפסה." });
-              localStorage.setItem('file_quality_status', 'good');
-            } else {
-              setFileQuality({ status: 'bad', issues });
-              localStorage.setItem('file_quality_status', 'bad');
-            }
-          };
-          img.src = e.target.result;
-          
-          localStorage.setItem('uploaded_file', JSON.stringify({ name: file.name, type: file.type }));
-          toast({
-            title: "קובץ הועלה בהצלחה!",
-            description: "כעת מתבצעת בדיקת איכות...",
-          });
-        };
-        reader.readAsDataURL(file);
+    // Image checks (AR + resolution) and preview
+    const REQUIRED_AR = 200/85;
+    const TOL = 0.10;
+    const MIN_W = 1270, MIN_H = 3000;
+
+    if (file.type.startsWith('image/')) {
+      const dataUrl = await new Promise((ok, err) => {
+        const fr = new FileReader();
+        fr.onload = () => ok(fr.result);
+        fr.onerror = () => err(new Error('שגיאה בקריאת הקובץ'));
+        fr.readAsDataURL(file);
+      });
+
+      const dims = await new Promise((ok) => {
+        const img = new Image();
+        img.onload = () => ok({ w: img.width, h: img.height });
+        img.onerror = () => ok(null);
+        img.src = dataUrl;
+      });
+
+      const issues = [];
+      if (!dims) {
+        issues.push('שגיאת קריאה – לא ניתן לקרוא את התמונה');
       } else {
-        setFileQuality({ status: 'bad', issues: ["פורמט הקובץ אינו נתמך."] });
+        if (dims.w < MIN_W || dims.h < MIN_H) {
+          issues.push(`הרזולוציה נמוכה מדי (נדרש לפחות ‎${MIN_W}×${MIN_H} פיקסלים)`);
+        }
+        const ar = dims.h / dims.w;
+        if (ar < REQUIRED_AR*(1-TOL) || ar > REQUIRED_AR*(1+TOL)) {
+          issues.push('הפרופורציות לא מתאימות (צריך יחס של ‎200/85)');
+        }
+      }
+
+      if (issues.length) {
+        setFileQuality({ status: 'bad', issues });
         localStorage.setItem('file_quality_status', 'bad');
         setPreviewImage(null);
-        toast({
-          title: "קובץ לא נתמך",
-          description: "אנא העלו קובץ בפורמט PDF, JPG או PNG.",
-          variant: "destructive",
-        });
+        return;
       }
+
+      // Passed: show preview and queue for checkout
+      setPreviewImage(dataUrl);
+      setFileQuality({ status: 'good', message: 'הקובץ עבר בדיקה ויועלה לאחר לחיצה על "המשך לתשלום".' });
+      localStorage.setItem('file_quality_status', 'good');
+      localStorage.setItem('primary_file_meta', JSON.stringify({ name: file.name, size: file.size }));
+      const { setMainFile } = await import('@/lib/pendingUploads');
+      setMainFile(file);
+      toast({ title: 'הקובץ מוכן', description: 'הקובץ יועלה בעת התשלום.' });
+      return;
     }
+
+    // PDF: queue without preview
+    setFileQuality({ status: 'good', message: 'קובץ PDF התקבל. ההעלאה תתבצע לאחר לחיצה על "המשך לתשלום".' });
+    localStorage.setItem('file_quality_status', 'good');
+    localStorage.setItem('primary_file_meta', JSON.stringify({ name: file.name, size: file.size }));
+    const { setMainFile } = await import('@/lib/pendingUploads');
+    setMainFile(file);
+    setPreviewImage(null);
+    toast({ title: 'הקובץ מוכן', description: 'קובץ PDF יועלה בעת התשלום.' });
   };
 
   const fileInstructions = [
