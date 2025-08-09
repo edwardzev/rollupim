@@ -1,17 +1,189 @@
 <!doctype html>
 <html lang="he" dir="rtl">
-	<head>
-		<meta charset="UTF-8" />
-		<link rel="icon" type="image/svg+xml" href="/vite.svg" />
-		<meta name="generator" content="Hostinger Horizons" />
-		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<link rel="preconnect" href="https://fonts.googleapis.com">
-		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-		<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Hebrew:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-		<title>רולאפ להרכבה עצמית</title>
-	</head>
-	<body>
-		<div id="root"></div>
-		<script type="module" src="/src/main.jsx"></script>
-	</body>
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="generator" content="Hostinger Horizons" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Hebrew:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <title>רולאפ להרכבה עצמית</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+
+    <!-- Rollupim Support Chat (MVP Step 1) -->
+    <script>
+(() => {
+  if (document.getElementById('rollupim-chat-root')) return;
+
+  const host = document.createElement('div');
+  host.id = 'rollupim-chat-root';
+  // Move to TOP-RIGHT
+  Object.assign(host.style, { position:'fixed', left:'16px', top:'16px', zIndex: '2147483647' });
+  document.body.appendChild(host);
+
+// ---- reveal when the video section is reached ----
+host.style.opacity = '0';
+host.style.transform = 'translateY(-6px)';
+host.style.transition = 'opacity 220ms ease, transform 220ms ease';
+
+// Pick a target to observe (priority: [data-chat-reveal], first <video>, or #chatRevealVideo)
+const target =
+  document.querySelector('[data-chat-reveal]') ||
+  document.querySelector('video') ||
+  document.getElementById('chatRevealVideo');
+
+function reveal() {
+  host.style.opacity = '1';
+  host.style.transform = 'translateY(0)';
+}
+
+if (target && 'IntersectionObserver' in window) {
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        reveal();
+        io.disconnect(); // reveal once
+        break;
+      }
+    }
+  }, { root: null, threshold: 0.4 }); // ~40% of target visible
+  io.observe(target);
+
+  // Safety fallback if user never reaches the video (optional)
+  setTimeout(() => { if (host.style.opacity === '0') reveal(); }, 12000);
+} else {
+  // Fallback: crude scroll trigger
+  function onScrollFallback() {
+    if (window.scrollY > 600) {
+      reveal();
+      window.removeEventListener('scroll', onScrollFallback);
+    }
+  }
+  window.addEventListener('scroll', onScrollFallback, { passive: true });
+  setTimeout(() => { if (host.style.opacity === '0') reveal(); }, 12000);
+}
+
+const shadow = host.attachShadow({ mode: 'open' });
+
+
+
+  const css = `
+    :host { all: initial; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+
+    /* Chat button styling — compact pill, 2-line */
+    .btn {
+      width: 130px;            /* fixed width so the label wraps to 2 lines */
+      height: 70px;           /* let height grow with text */
+      padding: 6px 8px;       /* compact padding */
+      border-radius: 12px;
+      border: 0;
+      cursor: pointer;
+      color: #fff;
+      background: #2563eb;    /* bulk-order blue */
+      box-shadow: 0 10px 25px rgba(37, 99, 235, 0.45);
+      font-weight: 800;
+      font-size: 20px;        /* text size */
+      line-height: 1.2;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      white-space: normal;    /* allow wrapping */
+    }
+    .btn:hover { background: #1d4ed8; } /* blue-700 */
+
+    .wrap { width:360px; height:520px; display:flex; flex-direction:column;
+            background:#fff; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,.15); overflow:hidden; }
+    .bar { display:flex; align-items:center; justify-content:space-between; padding:12px;
+           background:#2563eb; color:#fff; font-weight:700; }
+    .x { background:transparent; border:0; color:#fff; font-size:18px; cursor:pointer; }
+    .body { flex:1; display:flex; flex-direction:column; gap:8px; padding:12px; background:#f8fafc; overflow:auto; }
+    .msg { max-width:85%; padding:10px; border-radius:12px; }
+    .a { align-self:flex-start; background:#fff; }
+    .u { align-self:flex-end; background:#e2e8f0; }
+    .foot { display:flex; gap:6px; padding:8px; border-top:1px solid #e5e7eb; background:#fff; }
+    .in { flex:1; border:1px solid #e5e7eb; border-radius:10px; padding:10px; }
+    .send { background:#2563eb; color:#fff; border:0; border-radius:10px; padding:0 14px; cursor:pointer; }
+    .hidden { display:none; }
+  `;
+
+  const html = `
+    <style>${css}</style>
+    <!-- Updated label -->
+    <button class="btn" id="openBtn" aria-label="פתח תמיכה">אנחנו כאן <br>שאלה לכל</button>
+
+    <div class="wrap hidden" id="panel" role="dialog" aria-label="Rollupim Support">
+      <div class="bar">
+        <div>תמיכה</div>
+        <button class="x" id="closeBtn" aria-label="סגור">×</button>
+      </div>
+      <div class="body" id="msgs">
+        <div class="msg a">שלום! איך אפשר לעזור? כדי לבדוק סטטוס הזמנה, כתבו מספר הזמנה / מייל / טלפון.</div>
+      </div>
+      <div class="foot">
+        <input class="in" id="input" placeholder="כתוב הודעה…" />
+        <button class="send" id="sendBtn">שלח</button>
+      </div>
+    </div>
+  `;
+
+  shadow.innerHTML = html;
+
+  const $ = (sel) => shadow.querySelector(sel);
+  const openBtn = $('#openBtn');
+  const panel = $('#panel');
+  const closeBtn = $('#closeBtn');
+  const sendBtn = $('#sendBtn');
+  const input = $('#input');
+  const msgs = $('#msgs');
+
+  function toggle(open) {
+    openBtn.classList.toggle('hidden', open);
+    panel.classList.toggle('hidden', !open);
+    if (open) setTimeout(() => input.focus(), 0);
+  }
+
+  function push(role, text) {
+    const div = document.createElement('div');
+    div.className = `msg ${role === 'user' ? 'u' : 'a'}`;
+    div.textContent = text;
+    msgs.appendChild(div);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  openBtn.addEventListener('click', () => toggle(true));
+  closeBtn.addEventListener('click', () => toggle(false));
+
+  async function send() {
+    const text = (input.value || '').trim();
+    if (!text) return;
+    input.value = '';
+    push('user', text);
+
+    try {
+      const r = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      if (!r.ok) throw new Error('bad status ' + r.status);
+      const data = await r.json();
+      push('assistant', data.reply || 'אוקיי');
+    } catch (e) {
+      push('assistant', '❌ לא הצלחתי להתחבר לשרת. ודאו שהשרת פועל ושהפרוקסי מוגדר.');
+      console.error(e);
+    }
+  }
+
+  sendBtn.addEventListener('click', send);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+})();
+</script>
+  </body>
 </html>
