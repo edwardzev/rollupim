@@ -152,18 +152,18 @@ const BulkOffer = () => {
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 100, opacity: 0 }}
             transition={{ duration: 0.5, ease: 'easeInOut' }}
-            className="fixed top-1/2 right-0 -translate-y-1/2 transform z-[9999]"
+            className="fixed bottom-4 right-4 md:top-1/2 md:right-0 md:-translate-y-1/2 md:bottom-auto transform z-[9999]"
           >
             <Dialog open={open} onOpenChange={setOpen}>
               <DialogTrigger asChild>
                 <Button
-                  size="lg"
-                  className="rounded-l-xl bg-blue-600 hover:bg-blue-700 text-white shadow-2xl p-6 px-7 h-auto w-[320px] md:w-[280px] text-left"
+                  size="default"
+                  className="rounded-l-xl bg-blue-600 hover:bg-blue-700 text-white shadow-2xl p-3 px-4 md:p-5 md:px-6 h-auto w-[240px] sm:w-[260px] md:w-[280px] lg:w-[280px] text-left"
                 >
-                  <MessageSquareQuote className="h-8 w-8 ml-3" />
+                  <MessageSquareQuote className="h-6 w-6 md:h-8 md:w-8 ml-3" />
                   <div>
-                    <p className="font-bold text-lg">צריך יותר מ-3 יחידות?</p>
-                    <p className="text-base opacity-90">קבל הצעה מיוחדת</p>
+                    <p className="font-bold text-base md:text-lg">צריך יותר מ-3 יחידות?</p>
+                    <p className="text-sm md:text-base opacity-90">קבל הצעה מיוחדת</p>
                   </div>
                 </Button>
               </DialogTrigger>

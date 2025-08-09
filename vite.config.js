@@ -197,12 +197,13 @@ export default defineConfig({
 		addTransformIndexHtml
 	],
 	server: {
-		cors: true,
-		headers: {
-			'Cross-Origin-Embedder-Policy': 'credentialless',
-		},
-		allowedHosts: true,
-	},
+  cors: true,
+  headers: { 'Cross-Origin-Embedder-Policy': 'credentialless' },
+  allowedHosts: true,
+  port: 5173,          // fixed
+  strictPort: true,    // fail if busy (so you notice)
+  proxy: { '/api': 'http://localhost:3001' }
+},
 	resolve: {
 		extensions: ['.jsx', '.js', '.tsx', '.ts', '.json', ],
 		alias: {
