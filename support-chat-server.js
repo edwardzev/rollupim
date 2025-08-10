@@ -7,6 +7,72 @@ import OpenAI from 'openai';
 import fs from 'fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
+
+// --- JSONL rotating logger ---
+const LOG_DIR = path.join(__dirname, 'logs');
+
+async function ensureLogDir() {
+  try { await fs.mkdir(LOG_DIR, { recursive: true }); } catch {}
+}
+function logFileForToday() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return path.join(LOG_DIR, `chat-${yyyy}-${mm}-${dd}.jsonl`);
+}
+async function logTurn(obj) {
+  try {
+    await ensureLogDir();
+    await fs.appendFile(logFileForToday(), JSON.stringify(obj) + '\n', 'utf8');
+  } catch (e) {
+    console.warn('[log] append failed:', e.message);
+  }
+}
+
+// cookies + redaction
+function parseCookies(str='') {
+  return Object.fromEntries(
+    str.split(';').map(s => s.trim()).filter(Boolean).map(kv => {
+      const i = kv.indexOf('=');
+      return i === -1 ? [kv, ''] : [kv.slice(0,i), decodeURIComponent(kv.slice(i+1))];
+    })
+  );
+}
+function getOrSetSessionId(req, res) {
+  const cookies = parseCookies(req.headers.cookie || '');
+  let sid = cookies.sid;
+  if (!sid) {
+    sid = crypto.randomUUID();
+    res.setHeader('Set-Cookie', `sid=${sid}; Path=/; Max-Age=15552000; SameSite=Lax`);
+  }
+  return sid;
+}
+function mask(s) { return s.length <= 4 ? '*'.repeat(s.length) : s.slice(0,2) + '***' + s.slice(-2); }
+function redact(text='') {
+  let t = String(text);
+  t = t.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig, m => mask(m)); // email
+  t = t.replace(/\+?\d[\d\s\-()]{6,}/g, m => mask(m));                    // phone-ish
+  t = t.replace(/\b\d{6,}\b/g, m => mask(m));                              // long numbers
+  return t;
+}
+
+// optional: purge logs older than 120 days at boot
+async function purgeOldLogs(days = 120) {
+  try {
+    await ensureLogDir();
+    const files = await fs.readdir(LOG_DIR);
+    const cutoff = Date.now() - days * 86400000;
+    for (const f of files) {
+      if (!f.startsWith('chat-')) continue;
+      const p = path.join(LOG_DIR, f);
+      const st = await fs.stat(p);
+      if (st.mtimeMs < cutoff) await fs.unlink(p);
+    }
+  } catch {}
+}
+purgeOldLogs();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -310,6 +376,18 @@ function looksLikeOrderQuery(txt) {
 app.post('/api/chat', async (req, res) => {
   const userText = String(req.body?.text || '').trim();
 
+  const t0 = Date.now();
+  const sessionId = getOrSetSessionId(req, res);
+  const messageId = (req._msgSeq = (req._msgSeq || 0) + 1);
+
+  await logTurn({
+    ts: new Date().toISOString(),
+    sessionId,
+    messageId,
+    role: 'user',
+    text: redact(userText)
+  });
+
   // ---- Fast KB pre-check: if it's not an order lookup, try KB before OpenAI
   try {
     if (!looksLikeOrderQuery(userText)) {
@@ -319,6 +397,18 @@ app.post('/api/chat', async (req, res) => {
         const title = kbHit.best.title || 'unknown';
         KB_HITS[title] = (KB_HITS[title] || 0) + 1;
         await saveKBHits();
+
+        await logTurn({
+          ts: new Date().toISOString(),
+          sessionId,
+          messageId,
+          role: 'assistant',
+          text: redact(kbHit.best.answer),
+          kbHit: true,
+          kbTitle: kbHit.best.title || null,
+          model: 'kb-local',
+          latencyMs: Date.now() - t0
+        });
 
         return res.json({ reply: kbHit.best.answer });
       }
@@ -354,11 +444,13 @@ app.post('/api/chat', async (req, res) => {
       const name = call.function?.name;
       const args = safeParseJSON(call.function?.arguments);
 
+      let lastKBToolTitle = null;
       let toolResult = {};
       if (name === 'getOrderStatus') {
         toolResult = await getOrderStatusTool(args);
       } else if (name === 'getKBAnswer') {
         toolResult = await getKBAnswerTool(args);
+        if (toolResult?.found && toolResult.best?.title) lastKBToolTitle = toolResult.best.title;
       }
 
       // Second pass: give the tool result so the model can phrase the final answer nicely
@@ -382,6 +474,20 @@ app.post('/api/chat', async (req, res) => {
 
     // Return final assistant text
     const finalText = msg.content || 'סליחה, לא הצלחתי להבין. אפשר לנסח שוב?';
+
+    await logTurn({
+      ts: new Date().toISOString(),
+      sessionId,
+      messageId,
+      role: 'assistant',
+      text: redact(finalText),
+      kbHit: Boolean(lastKBToolTitle),
+      kbTitle: lastKBToolTitle,
+      toolUsed: msg.tool_calls?.[0]?.function?.name || null,
+      model: MODEL,
+      latencyMs: Date.now() - t0
+    });
+
     return res.json({ reply: finalText });
   } catch (err) {
     console.error('chat error', err);
@@ -427,6 +533,19 @@ app.get('/api/debug/kb-hits', (req, res) => {
     loadError: KB_HITS_DEBUG.error,
     saveError: KB_HITS_DEBUG.saveError,
   });
+});
+
+app.get('/api/debug/logs', async (req, res) => {
+  try {
+    const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 100));
+    const file = logFileForToday();
+    const txt = await fs.readFile(file, 'utf8').catch(() => '');
+    const lines = txt.trim().split('\n').slice(-limit);
+    const items = lines.filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+    res.json({ file, count: items.length, items });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ----- Start -----
