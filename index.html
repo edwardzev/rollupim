@@ -19,6 +19,16 @@
 (() => {
   if (document.getElementById('rollupim-chat-root')) return;
 
+  // Decide API base:
+  // - If window.ROLLUPIM_API_BASE is set (e.g., on Vercel), use it (same-domain serverless or external).
+  // - If running on localhost, default to the local dev server (:3001).
+  // - Otherwise, use relative '/api' so Vercel Functions work without CORS.
+  const API_BASE = (typeof window.ROLLUPIM_API_BASE === 'string' && window.ROLLUPIM_API_BASE)
+    ? window.ROLLUPIM_API_BASE.replace(/\/+$/,'')
+    : ((location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+        ? 'http://localhost:3001'
+        : '');
+
   const host = document.createElement('div');
   host.id = 'rollupim-chat-root';
   // Move to TOP-RIGHT
@@ -165,7 +175,7 @@ const shadow = host.attachShadow({ mode: 'open' });
     push('user', text);
 
     try {
-      const r = await fetch('/api/chat', {
+      const r = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text })
