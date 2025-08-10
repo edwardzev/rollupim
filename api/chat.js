@@ -4,6 +4,7 @@ import path from 'node:path';
 import OpenAI from 'openai';
 
 export const config = { runtime: 'nodejs' }; // ensure Node runtime on Vercel
+
 // ---------- body parsing helper for Node runtime ----------
 async function readJSON(req) {
   // If the framework has already parsed the body:
