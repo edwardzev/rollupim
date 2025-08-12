@@ -32,10 +32,7 @@ const Footer = () => {
           >
             <h4 className="text-lg font-semibold mb-4">יצירת קשר</h4>
             <div className="space-y-3">
-              <div className="flex items-center">
-                <Phone className="h-5 w-5 text-blue-400 ml-3" />
-                <span>050-1234567</span>
-              </div>
+              
               <div className="flex items-center">
                 <Mail className="h-5 w-5 text-blue-400 ml-3" />
                 <span>info@rollup.co.il</span>
@@ -60,7 +57,7 @@ const Footer = () => {
                 <Clock className="h-5 w-5 text-blue-400 ml-3" />
                 <div>
                   <div>א׳-ה׳: 9:00-18:00</div>
-                  <div>ו׳: 9:00-14:00</div>
+                  
                   <div>ש׳: סגור</div>
                 </div>
               </div>

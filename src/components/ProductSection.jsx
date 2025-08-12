@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Check, Plus, Minus } from 'lucide-react';
+import { Helmet } from 'react-helmet-async';
 
 const ProductSection = () => {
   const [quantities, setQuantities] = useState({
@@ -35,6 +36,28 @@ const ProductSection = () => {
       popular: true,
     },
   ];
+
+  const itemListJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    name: 'מבחר מוצרי רולאפ',
+    itemListElement: products.map((p, idx) => ({
+      '@type': 'ListItem',
+      position: idx + 1,
+      item: {
+        '@type': 'Product',
+        name: p.name,
+        description: p.description,
+        offers: {
+          '@type': 'Offer',
+          priceCurrency: 'ILS',
+          price: String(p.price),
+          availability: 'https://schema.org/InStock',
+          url: 'https://start.printmarket.club/',
+        },
+      },
+    })),
+  };
 
   const addons = [
     { id: 'bag',       name: 'תיק נשיאה',    originalPrice: 19, price: 0 }, // free
@@ -95,6 +118,9 @@ const ProductSection = () => {
 
   return (
     <section id="products" className="py-20 bg-white">
+      <Helmet>
+        <script type="application/ld+json">{JSON.stringify(itemListJsonLd)}</script>
+      </Helmet>
       <div className="container mx-auto px-4">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
@@ -140,8 +166,11 @@ const ProductSection = () => {
                       <p className="text-gray-600">{product.description}</p>
                     </div>
                     <div className="text-left mt-4 sm:mt-0 sm:ml-4 flex-shrink-0">
-                      <span className="text-3xl font-bold text-blue-600">{product.price}</span>
-                      <span className="text-gray-600"> ש"ח</span>
+                      <div className="flex items-baseline gap-1 justify-start">
+                        <span className="text-3xl font-bold text-blue-600">{product.price}</span>
+                        <span className="text-gray-600"> ש"ח</span>
+                        <span className="text-xs text-gray-500">כולל מע״מ</span>
+                      </div>
                     </div>
                   </div>
 
@@ -173,8 +202,12 @@ const ProductSection = () => {
                       </button>
 
                       {qty > 0 && (
-                        <div className="text-lg font-semibold text-gray-700 w-24 text-center">
-                          סה"כ: <span className="text-blue-600">{subtotal} ש"ח</span>
+                        <div className="text-lg font-semibold text-gray-700 w-28 text-center">
+                          סה"כ:
+                          <div className="flex items-baseline justify-center gap-1">
+                            <span className="text-blue-600">{subtotal} ש"ח</span>
+                            <span className="text-[11px] text-gray-500">כולל מע״מ</span>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -213,13 +246,21 @@ const ProductSection = () => {
 
                     <div className="flex items-center">
                       {addon.id === 'bag' && (
-                        <span className="text-gray-500 line-through ml-2">{addon.originalPrice} ש"ח</span>
+                        <>
+                          <span className="text-gray-500 line-through ml-2">{addon.originalPrice} ש"ח</span>
+                          <span className="text-xs text-gray-400 mr-2"> </span>
+                        </>
                       )}
-                      <span
-                        className={`font-bold ${addon.id === 'bag' ? 'text-green-600' : 'text-blue-600'}`}
-                      >
-                        {addon.price > 0 ? `${displayPrice} ש"ח` : 'חינם!'}
-                      </span>
+                      {addon.price > 0 ? (
+                        <>
+                          <span className={`font-bold ${addon.id === 'bag' ? 'text-green-600' : 'text-blue-600'}`}>
+                            {displayPrice} ש"ח
+                          </span>
+                          <span className="text-xs text-gray-500 mr-2">כולל מע״מ</span>
+                        </>
+                      ) : (
+                        <span className="font-bold text-green-600">חינם!</span>
+                      )}
                     </div>
                   </div>
                 );
@@ -230,7 +271,10 @@ const ProductSection = () => {
           <div className="mt-12 p-6 bg-gray-100 rounded-2xl shadow-inner">
             <div className="flex justify-between items-center">
               <h3 className="text-2xl font-bold text-gray-800">סך הכל:</h3>
-              <span className="text-4xl font-bold text-blue-600">{total} ש"ח</span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-4xl font-bold text-blue-600">{total} ש"ח</span>
+                <span className="text-sm text-gray-500">כולל מע״מ</span>
+              </div>
             </div>
           </div>
         </div>

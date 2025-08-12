@@ -6,13 +6,13 @@ const HowItWorksSection = () => {
   const steps = [
     {
       icon: Upload,
-      title: 'העלאת קובץ גרפי',
-      description: 'העלו את הקובץ הגרפי שלכם (JPG, PNG, PDF) וראו תצוגה מקדימה',
+      title: 'מעלים קובץ גרפי',
+      description: 'מעלים את הקובץ הגרפי שלכם (JPG, PNG, PDF) מאשרים תצוגה מקדימה',
       color: 'bg-blue-500'
     },
     {
       icon: Package,
-      title: 'קבלת סטנד והדפסה בנפרד',
+      title: 'מקבלים סטנד והדפסה בנפרד',
       description: 'אנחנו שולחים לכם את הסטנד והבד המודפס בנפרד עם הוראות הרכבה',
       color: 'bg-green-500'
     },
