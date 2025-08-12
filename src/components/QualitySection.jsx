@@ -44,7 +44,7 @@ const QualitySection = () => {
             איכות ללא פשרות
           </h2>
           <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-            אנו מתחייבים למוצרים ברמה הגבוהה ביותר, מהבד ועד הסטנד
+            אנו מתחייבים למוצרים ברמה הגבוהה ביותר
           </p>
         </motion.div>
 
@@ -83,7 +83,7 @@ const QualitySection = () => {
               למה לבחור ברולאפ שלנו?
             </h3>
             <p className="text-blue-100 mb-6">
-              כי אנחנו מאמינים שאיכות לא צריכה להיות יקרה. אנו מציעים לכם מוצר מקצועי ועמיד, במחיר המשתלם ביותר בישראל, עם נוחות הרכבה עצמית.
+              כי אנחנו מאמינים שאיכות לא צריכה להיות יקרה. אנו מציעים לכם מוצר מקצועי ועמיד, במחיר המשתלם ביותר בישראל.
             </p>
             <img-replace alt="רולאפ מורכב ואיכותי בתערוכה" class="rounded-xl shadow-lg mx-auto" src="https://images.unsplash.com/photo-1517048676732-d65bc9c53441?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D" />
           </div>

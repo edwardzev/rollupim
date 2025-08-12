@@ -5,6 +5,48 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="generator" content="Hostinger Horizons" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Canonical URL -->
+    <link rel="canonical" href="https://start.printmarket.club/" />
+
+    <!-- Open Graph / Facebook / WhatsApp defaults -->
+    <meta property="og:title" content="רולאפ להרכבה עצמית – הכי זול בישראל | פרינט מרקט" />
+    <meta property="og:description" content="רולאפ להרכבה עצמית במחיר הכי זול בישראל. העלו את הגרפיקה שלכם, קבלו תצוגה מקדימה ומשלוח מהיר לכל הארץ." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://start.printmarket.club/" />
+    <meta property="og:image" content="https://start.printmarket.club/og/rollup-hero.jpg" />
+    <meta property="og:locale" content="he_IL" />
+
+    <!-- Twitter Card defaults -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="רולאפ להרכבה עצמית – הכי זול בישראל | פרינט מרקט" />
+    <meta name="twitter:description" content="רולאפ להרכבה עצמית במחיר הכי זול בישראל. העלו את הגרפיקה שלכם, קבלו תצוגה מקדימה ומשלוח מהיר לכל הארץ." />
+    <meta name="twitter:image" content="https://start.printmarket.club/og/rollup-hero.jpg" />
+
+    <!-- Organization JSON-LD -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "Print Market Ltd.",
+      "url": "https://start.printmarket.club/",
+      "logo": "https://start.printmarket.club/og/logo.png",
+      "sameAs": [
+        "https://www.facebook.com/printmarket.il",
+        "https://www.instagram.com/print.market",
+        "https://www.youtube.com/@printmarket"
+      ],
+      "contactPoint": [{
+        "@type": "ContactPoint",
+        "telephone": "+972-3-0000000",
+        "contactType": "customer service",
+        "areaServed": "IL",
+        "availableLanguage": ["he", "en", "ru"]
+      }]
+    }
+    </script>
+
+    <!-- Theme color (optional) -->
+    <meta name="theme-color" content="#ffffff" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Hebrew:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -32,7 +74,7 @@
   const host = document.createElement('div');
   host.id = 'rollupim-chat-root';
   // Move to TOP-RIGHT
-  Object.assign(host.style, { position:'fixed', left:'16px', top:'16px', zIndex: '2147483647' });
+  Object.assign(host.style, { position:'fixed', left:'16px', top:'calc(16px + env(safe-area-inset-top))', zIndex: '2147483647' });
   document.body.appendChild(host);
 
 // ---- reveal when the video section is reached ----
@@ -87,8 +129,8 @@ const shadow = host.attachShadow({ mode: 'open' });
     /* Chat button styling — compact pill, 2-line */
     .btn {
       width: 130px;            /* fixed width so the label wraps to 2 lines */
-      height: 70px;           /* let height grow with text */
-      padding: 6px 8px;       /* compact padding */
+      height: 70px;
+      padding: 6px 8px;
       border-radius: 12px;
       border: 0;
       cursor: pointer;
@@ -96,29 +138,45 @@ const shadow = host.attachShadow({ mode: 'open' });
       background: #2563eb;    /* bulk-order blue */
       box-shadow: 0 10px 25px rgba(37, 99, 235, 0.45);
       font-weight: 800;
-      font-size: 20px;        /* text size */
+      font-size: 20px;
       line-height: 1.2;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       text-align: center;
-      white-space: normal;    /* allow wrapping */
+      white-space: normal;
     }
-    .btn:hover { background: #1d4ed8; } /* blue-700 */
+    .btn:hover { background: #1d4ed8; }
 
-    .wrap { width:360px; height:520px; display:flex; flex-direction:column;
-            background:#fff; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,.15); overflow:hidden; }
-    .bar { display:flex; align-items:center; justify-content:space-between; padding:12px;
-           background:#2563eb; color:#fff; font-weight:700; }
-    .x { background:transparent; border:0; color:#fff; font-size:18px; cursor:pointer; }
-    .body { flex:1; display:flex; flex-direction:column; gap:8px; padding:12px; background:#f8fafc; overflow:auto; }
-    .msg { max-width:85%; padding:10px; border-radius:12px; }
+    /* Panel: mobile-safe width/height and scroll behavior */
+    .wrap {
+      width: min(420px, 92vw);
+      height: 72dvh; /* dynamic viewport for modern mobile */
+      max-height: calc(var(--vh, 1vh) * 78); /* fallback for older Safari */
+      display:flex; flex-direction:column;
+      background:#fff; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,.15); overflow:hidden;
+    }
+    .bar { display:flex; align-items:center; justify-content:space-between; padding: calc(12px + env(safe-area-inset-top)) 14px 12px; background:#2563eb; color:#fff; font-weight:700; }
+    .x { background:transparent; border:0; color:#fff; font-size:20px; cursor:pointer; line-height:1; }
+
+    .body { flex:1; display:flex; flex-direction:column; gap:8px; padding:12px; background:#f8fafc; overflow:auto; -webkit-overflow-scrolling:touch; }
+    .msg { max-width:85%; padding:10px; border-radius:12px; word-break:break-word; }
     .a { align-self:flex-start; background:#fff; }
     .u { align-self:flex-end; background:#e2e8f0; }
-    .foot { display:flex; gap:6px; padding:8px; border-top:1px solid #e5e7eb; background:#fff; }
-    .in { flex:1; border:1px solid #e5e7eb; border-radius:10px; padding:10px; }
-    .send { background:#2563eb; color:#fff; border:0; border-radius:10px; padding:0 14px; cursor:pointer; }
+
+    .foot { display:flex; gap:6px; padding:8px; border-top:1px solid #e5e7eb; background:#fff; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+    .in  { flex:1; border:1px solid #e5e7eb; border-radius:10px; padding:10px; font-size:16px; }
+    .send{ background:#2563eb; color:#fff; border:0; border-radius:10px; padding:0 14px; cursor:pointer; font-size:16px; }
+
     .hidden { display:none; }
+
+    /* Small phones */
+    @media (max-width: 480px) {
+      .wrap { width: 96vw; height: 65dvh; border-radius:14px; }
+      .bar  { font-size:16px; }
+      .msg  { font-size:15px; }
+      .btn  { width:52px; height:52px; font-size:15px; border-radius:999px; line-height:1; white-space:nowrap; }
+    }
   `;
 
   const html = `
@@ -142,6 +200,21 @@ const shadow = host.attachShadow({ mode: 'open' });
   `;
 
   shadow.innerHTML = html;
+
+  // --- Mobile viewport fallback (older Safari iOS < 16) ---
+  const setVH = () => host.style.setProperty('--vh', (window.innerHeight * 0.01) + 'px');
+  setVH();
+  window.addEventListener('resize', setVH);
+
+  // Respect iOS safe area for host position
+  host.style.position = 'fixed';
+  // host left/top are already set above; just ensure it doesn't collide with safe area if moved to bottom in future
+  host.style.zIndex = '2147483647';
+
+  // Keep input visible when keyboard opens and auto-scroll to last message
+  input.addEventListener('focus', () => {
+    setTimeout(() => { msgs.scrollTop = msgs.scrollHeight; host.scrollIntoView({block:'nearest'}); }, 120);
+  });
 
   const $ = (sel) => shadow.querySelector(sel);
   const openBtn = $('#openBtn');
