@@ -11,6 +11,32 @@ const UPLOAD_PRESET = 'rollupim';
 const PABBLY_WEBHOOK =
   'https://connect.pabbly.com/workflow/sendwebhookdata/IjU3NjYwNTZhMDYzMDA0MzE1MjZhNTUzNTUxMzci_pc';
 
+
+// Build iCount checkout URL from order + customer data
+function buildICountPayUrl({
+  pageId,
+  sum,
+  description,
+  fullName,
+  firstName,
+  lastName,
+  phone,
+  email,
+  keepUtm = true,
+}) {
+  const base = `https://app.icount.co.il/m/${pageId}`;
+  const params = new URLSearchParams();
+  if (sum != null) params.set('cs', String(sum));
+  if (description) params.set('cd', description);
+  if (fullName) params.set('full_name', fullName);
+  if (firstName) params.set('ccfname', firstName);
+  if (lastName) params.set('cclname', lastName);
+  if (phone) params.set('contact_phone', phone);
+  if (email) params.set('contact_email', email);
+  if (keepUtm) params.set('utm_nooverride', '1');
+  return `${base}?${params.toString()}`;
+}
+
 /* --------------------------------- helpers --------------------------------- */
 const safeParse = (s) => { try { return JSON.parse(s); } catch { return null; } };
 
@@ -48,6 +74,9 @@ const makePublicIdPrefix = (customerName) => {
   const who = asciiSlug(customerName) || 'client';
   return `${who}_${tsForId()}_`;
 };
+
+// iCount checkout page ID from your account
+const ICOUNT_PAGE_ID = "0da93"; // iCount checkout page ID from your account
 
 // Unsigned upload (PDF -> resource "raw", images -> "auto")
 async function uploadToCloudinary(file, prefix) {
@@ -234,22 +263,58 @@ const CustomerDetailsSection = () => {
         return { id: a.id, name: a.name, price: a.price, quantity: qty };
       });
 
-      // ===== payload =====
+      // ===== itemized summary for iCount description (sanitized & compact) =====
+      const _itemizedParts = [
+        ...(product_lines.filter(p => p.quantity > 0).map(p => `${p.name} x${p.quantity}`)),
+        ...(addon_lines.filter(a => a.quantity > 0 && a.price > 0).map(a => `${a.name}${a.quantity > 1 ? ` x${a.quantity}` : ''}`)),
+      ];
+      const _cleanParts = _itemizedParts.map(p => p.replace(/["'–—]/g, '').trim());
+      const _buildCompact = (parts, maxLen = 120) => {
+        let joined = parts.join(', ');
+        if (joined.length <= maxLen) return joined;
+        const kept = [];
+        let len = 0, extra = 0;
+        for (const part of parts) {
+          if (len + part.length + 2 <= maxLen) { kept.push(part); len += part.length + 2; }
+          else { extra++; }
+        }
+        return kept.join(', ') + (extra > 0 ? ` +${extra} עוד` : '');
+      };
+      const itemizedSummary = _buildCompact(_cleanParts, 120);
+
+      // ===== payload + iCount payment link =====
+      const orderId = Date.now();
+      const [firstName = '', lastName = ''] = (customerInfo.name || '').trim().split(/\s+/, 2);
+      const description = `${itemizedSummary} | סה"כ ${grandTotal}₪ | Order #${orderId}`.slice(0, 220);
+
+      const payUrl = buildICountPayUrl({
+        pageId: ICOUNT_PAGE_ID,
+        sum: grandTotal,
+        description,
+        fullName: customerInfo.name,
+        firstName,
+        lastName,
+        phone: customerInfo.phone,
+        email: customerInfo.email,
+        keepUtm: true,
+      });
+
       const orderPayload = {
-        id: Date.now(),
+        id: orderId,
         products: product_lines,
         addons: addon_lines,
         computed_units: units,
         file_urls: allUrls.join(','), // single field with comma-separated URLs
         customer: {
-            name: customerInfo.name,
-            phone: customerInfo.phone,
-            email: customerInfo.email,
-            address: customerInfo.address || null,
-            city: customerInfo.city || null,
+          name: customerInfo.name,
+          phone: customerInfo.phone,
+          email: customerInfo.email,
+          address: customerInfo.address || null,
+          city: customerInfo.city || null,
         },
         total: grandTotal,
         date: new Date().toISOString(),
+        payment_link: payUrl,
       };
 
       await fetch(PABBLY_WEBHOOK, {
@@ -260,13 +325,9 @@ const CustomerDetailsSection = () => {
 
       clearAllPendingUploads?.();
 
-      // Success toast + popup
-      toast({
-        title: 'ההזמנה נשלחה!',
-        description: `הקבצים הועלו ונשלחו. סה״כ: ${grandTotal} ש״ח`,
-      });
-      setSuccessOpen(true);
-      setTimeout(() => setSuccessOpen(false), 6500); // auto-close after ~2.5s
+      // ===== redirect to iCount checkout =====
+      window.location.href = orderPayload.payment_link; // send customer to iCount payment page
+      return; // stop further handling
     } catch (err) {
       console.error(err);
       toast({
