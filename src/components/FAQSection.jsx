@@ -118,10 +118,10 @@ const FAQSection = () => {
                 📞 050-1234567
               </a>
               <a
-                href="mailto:info@rollup.co.il"
+                href="mailto:info@rollupim.co.il"
                 className="bg-blue-700 text-white px-6 py-3 rounded-xl font-semibold hover:bg-blue-800 transition-colors"
               >
-                ✉️ info@rollup.co.il
+                ✉️ info@rollupim.co.il
               </a>
             </div>
           </div>

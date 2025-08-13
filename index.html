@@ -75,6 +75,7 @@
   host.id = 'rollupim-chat-root';
   // Move to TOP-RIGHT
   Object.assign(host.style, { position:'fixed', left:'16px', top:'calc(16px + env(safe-area-inset-top))', zIndex: '2147483647' });
+  host.style.pointerEvents = 'auto';
   document.body.appendChild(host);
 
 // ---- reveal when the video section is reached ----
@@ -92,6 +93,7 @@ function reveal() {
   host.style.opacity = '1';
   host.style.transform = 'translateY(0)';
 }
+reveal(); // TEMP: force visible immediately to debug click handler
 
 if (target && 'IntersectionObserver' in window) {
   const io = new IntersectionObserver((entries) => {
@@ -177,6 +179,9 @@ const shadow = host.attachShadow({ mode: 'open' });
       .msg  { font-size:15px; }
       .btn  { width:52px; height:52px; font-size:15px; border-radius:999px; line-height:1; white-space:nowrap; }
     }
+
+    .btn{ pointer-events:auto; }
+    #openBtn{ pointer-events:auto; }
   `;
 
   const html = `
@@ -201,50 +206,56 @@ const shadow = host.attachShadow({ mode: 'open' });
 
   shadow.innerHTML = html;
 
-  // --- Mobile viewport fallback (older Safari iOS < 16) ---
-  const setVH = () => host.style.setProperty('--vh', (window.innerHeight * 0.01) + 'px');
-  setVH();
-  window.addEventListener('resize', setVH);
-
-  // Respect iOS safe area for host position
-  host.style.position = 'fixed';
-  // host left/top are already set above; just ensure it doesn't collide with safe area if moved to bottom in future
-  host.style.zIndex = '2147483647';
-
-  // Keep input visible when keyboard opens and auto-scroll to last message
-  input.addEventListener('focus', () => {
-    setTimeout(() => { msgs.scrollTop = msgs.scrollHeight; host.scrollIntoView({block:'nearest'}); }, 120);
-  });
-
   const $ = (sel) => shadow.querySelector(sel);
   const openBtn = $('#openBtn');
   const panel = $('#panel');
   const closeBtn = $('#closeBtn');
   const sendBtn = $('#sendBtn');
-  const input = $('#input');
-  const msgs = $('#msgs');
+  const chatInput = $('#input');
+  const chatMsgs  = $('#msgs');
+
+  // Defensive delegation in case direct binding fails on some devices
+  shadow.addEventListener('click', (e) => {
+    const btnEl = e.target.closest && e.target.closest('#openBtn');
+    if (btnEl) {
+      e.preventDefault(); e.stopPropagation();
+      console.log('[chat] open (delegated)');
+      toggle(true);
+    }
+  }, { passive: false });
+
+  // Keep input visible when keyboard opens and auto-scroll to last message (attach after DOM refs exist)
+  if (chatInput && chatMsgs) {
+    chatInput.addEventListener('focus', () => {
+      setTimeout(() => {
+        try { chatMsgs.scrollTop = chatMsgs.scrollHeight; } catch {}
+        try { host.scrollIntoView({ block: 'nearest' }); } catch {}
+      }, 120);
+    });
+  }
 
   function toggle(open) {
     openBtn.classList.toggle('hidden', open);
     panel.classList.toggle('hidden', !open);
-    if (open) setTimeout(() => input.focus(), 0);
+    if (open) setTimeout(() => chatInput && chatInput.focus(), 0);
   }
 
   function push(role, text) {
     const div = document.createElement('div');
     div.className = `msg ${role === 'user' ? 'u' : 'a'}`;
     div.textContent = text;
-    msgs.appendChild(div);
-    msgs.scrollTop = msgs.scrollHeight;
+    chatMsgs.appendChild(div);
+    chatMsgs.scrollTop = chatMsgs.scrollHeight;
   }
 
-  openBtn.addEventListener('click', () => toggle(true));
-  closeBtn.addEventListener('click', () => toggle(false));
+  openBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); console.log('[chat] open'); toggle(true); });
+  openBtn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); console.log('[chat] open (touch)'); toggle(true); }, { passive: false });
+  closeBtn.addEventListener('click', () => { console.log('[chat] close'); toggle(false); });
 
   async function send() {
-    const text = (input.value || '').trim();
+    const text = (chatInput.value || '').trim();
     if (!text) return;
-    input.value = '';
+    chatInput.value = '';
     push('user', text);
 
     try {
@@ -263,7 +274,7 @@ const shadow = host.attachShadow({ mode: 'open' });
   }
 
   sendBtn.addEventListener('click', send);
-  input.addEventListener('keydown', (e) => {
+  chatInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
   });
 })();
