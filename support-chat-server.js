@@ -260,6 +260,23 @@ const tools = [
         additionalProperties: false
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'updateAdmin',
+      description: 'Notify admin via WhatsApp about an escalation from a customer.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name:    { type: 'string', description: 'Customer name (if known)' },
+          phone:   { type: 'string', description: 'Customer phone number (preferably with country code)' },
+          question:{ type: 'string', description: 'Short description of the issue / question' }
+        },
+        required: ['phone', 'question'],
+        additionalProperties: false
+      }
+    }
   }
 ];
 
@@ -310,6 +327,52 @@ async function getOrderStatusTool(args = {}) {
   const result = await findOrder(args);
   if (!result) return { found: false };
   return { found: true, ...result };
+}
+
+// --- Admin escalation tool (WhatsApp via HTTP) ---
+async function updateAdminTool(args = {}) {
+  const name = (args.name || '').toString().trim();
+  const phone = (args.phone || '').toString().trim();
+  const question = (args.question || '').toString().trim();
+  if (!phone || !question) return { success: false, error: 'phone and question are required' };
+
+  const adminTo = (process.env.WHAPI_ADMIN_TO || '').trim();
+  const apiKey  = (process.env.WHAPI_API_KEY || '').trim();
+  const apiUrl  = (process.env.WHAPI_API_URL || 'https://gate.whapi.cloud/messages/text').trim();
+
+  if (!adminTo) return { success: false, error: 'WHAPI_ADMIN_TO not set' };
+  if (!apiKey)  return { success: false, error: 'WHAPI_API_KEY not set' };
+
+  const bodyText = `Dear Admin, customer ${name || 'Unknown'} phone ${phone} needs your help relating ${question}`;
+
+  try {
+    const resp = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        typing_time: 0,
+        to: adminTo,
+        body: bodyText
+      })
+    });
+
+    const text = await resp.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+
+    if (!resp.ok) {
+      console.error('[updateAdmin] HTTP', resp.status, text);
+      return { success: false, status: resp.status, error: data?.error || text || 'HTTP error' };
+    }
+
+    return { success: true, sentTo: adminTo, body: bodyText, provider: 'whapi', response: data };
+  } catch (err) {
+    console.error('[updateAdmin] fetch failed:', err?.message || err);
+    return { success: false, error: err?.message || String(err) };
+  }
 }
 
 // --- Simple KB scoring + tool ---
@@ -451,6 +514,8 @@ app.post('/api/chat', async (req, res) => {
       } else if (name === 'getKBAnswer') {
         toolResult = await getKBAnswerTool(args);
         if (toolResult?.found && toolResult.best?.title) lastKBToolTitle = toolResult.best.title;
+      } else if (name === 'updateAdmin') {
+        toolResult = await updateAdminTool(args);
       }
 
       // Second pass: give the tool result so the model can phrase the final answer nicely
