@@ -93,7 +93,6 @@ function reveal() {
   host.style.opacity = '1';
   host.style.transform = 'translateY(0)';
 }
-reveal(); // TEMP: force visible immediately to debug click handler
 
 if (target && 'IntersectionObserver' in window) {
   const io = new IntersectionObserver((entries) => {
@@ -177,7 +176,7 @@ const shadow = host.attachShadow({ mode: 'open' });
       .wrap { width: 96vw; height: 65dvh; border-radius:14px; }
       .bar  { font-size:16px; }
       .msg  { font-size:15px; }
-      .btn  { width:52px; height:52px; font-size:15px; border-radius:999px; line-height:1; white-space:nowrap; }
+      .btn  { width:110px; height:58px; font-size:16px; border-radius:12px; line-height:1.15; white-space:normal; padding:6px 8px; }
     }
 
     .btn{ pointer-events:auto; }
