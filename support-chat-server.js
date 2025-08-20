@@ -85,6 +85,20 @@ function extractQuestion(text='') {
   return t.length >= 4 ? t : '';
 }
 
+// --- Quick extractors for direct order/email lookup ---
+const EMAIL_RE = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i;
+function extractOrderIdFromText(t = '') {
+  const s = String(t).trim();
+  // Accept R-13, r-13, R 13, R13 → normalize to R-13
+  const m = s.match(/\bR[\s-]?(\d{1,6})\b/i);
+  if (m) return `R-${m[1]}`;
+  return '';
+}
+function extractEmailFromText(t = '') {
+  const s = String(t).trim();
+  return EMAIL_RE.test(s) ? s : '';
+}
+
 
 // cookies + redaction
 function parseCookies(str='') {
@@ -187,10 +201,11 @@ app.use(express.json({ limit: '2mb' }));
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'gpt-5';
 
-// Defensive sanitizer: remove any accidental temperature field
+// Defensive sanitizer: remove any accidental temperature or max_tokens field
 function sanitizeOpenAIParams(p) {
   const o = { ...p };
   if ('temperature' in o) delete o.temperature;
+  if ('max_tokens' in o) delete o.max_tokens;
   return o;
 }
 
@@ -270,15 +285,32 @@ const F = {
 };
 
 
-async function findOrder({ orderId, email, phone }) {
+async function findOrder({ orderId, email }) {
   const clauses = [];
-  if (orderId) clauses.push(`{${F.ORDER_ID}} = '${orderId.replace(/'/g, "''")}'`);
-  if (email) clauses.push(`LOWER({${F.EMAIL}}) = '${email.toLowerCase().replace(/'/g, "''")}'`);
+  const esc = (s = '') => String(s).replace(/"/g, '\\"').trim();
+
+  if (orderId) {
+    clauses.push(`{${F.ORDER_ID}} = "${esc(orderId)}"`);
+  }
+  if (email) {
+    // case-insensitive compare (lower both sides)
+    clauses.push(`LOWER({${F.EMAIL}}) = "${esc(String(email).toLowerCase())}"`);
+  }
 
   if (!clauses.length) return null;
 
-  const filterByFormula = clauses.join(' OR ');
-  const recs = await base(STATUS_TABLE).select({ maxRecords: 5, filterByFormula }).all();
+  const filterByFormula = clauses.length === 1
+    ? clauses[0]
+    : `OR(${clauses.join(', ')})`;
+
+  // Optional: log to verify what we're sending
+  // console.log('[airtable] filterByFormula:', filterByFormula);
+
+  const recs = await base(STATUS_TABLE).select({
+    maxRecords: 5,
+    filterByFormula
+  }).all();
+
   if (!recs.length) return null;
 
   const r = recs[0];
@@ -356,6 +388,40 @@ app.post('/api/chat', async (req, res) => {
   const messageId = (req._msgSeq = (req._msgSeq || 0) + 1);
 
   const sess = getSession(sessionId);
+
+  // ---- DIRECT ORDER LOOKUP (preempt AI) ----
+  try {
+    const quickOrderId = extractOrderIdFromText(userText);
+    const quickEmail   = extractEmailFromText(userText);
+    if (quickOrderId || quickEmail) {
+      const result = await getOrderStatusTool({ orderId: quickOrderId, email: quickEmail });
+      if (result && result.found) {
+        const parts = [];
+        parts.push(`✅ ההזמנה **${result.orderId}** בסטטוס: **${result.status}**`);
+        if (result.lastUpdate) parts.push(`• עודכן לאחרונה: ${result.lastUpdate}`);
+        if (result.invoiceUrl) parts.push(`🔗 [חשבונית](${result.invoiceUrl})`);
+        if (result.deliveryCertUrl) parts.push(`🔗 [תעודת משלוח](${result.deliveryCertUrl})`);
+        parts.push('📦 תרצה שאעדכן כשזה יוצא למשלוח?');
+        const reply = parts.join('  \n');
+        appendToHistory(sess, { role: 'user', content: userText });
+        appendToHistory(sess, { role: 'assistant', content: reply });
+        sess.firstTurn = false;
+        await logTurn({ ts:new Date().toISOString(), sessionId, messageId, role:'assistant', text:redact(reply), toolUsed:'getOrderStatus', model: DEFAULT_MODEL, latencyMs: Date.now() - t0 });
+        return res.json({ reply });
+      } else {
+        const hint = quickOrderId || quickEmail;
+        const reply = `❌ לא מצאתי הזמנה תחת **${hint}**. אפשר לשתף **מספר הזמנה** אחר או **אימייל** נוסף?`;
+        appendToHistory(sess, { role: 'user', content: userText });
+        appendToHistory(sess, { role: 'assistant', content: reply });
+        sess.firstTurn = false;
+        await logTurn({ ts:new Date().toISOString(), sessionId, messageId, role:'assistant', text:redact(reply), toolUsed:null, model: DEFAULT_MODEL, latencyMs: Date.now() - t0 });
+        return res.json({ reply });
+      }
+    }
+  } catch (e) {
+    console.error('[direct lookup] error:', e?.message || e);
+    // fall through to AI on error
+  }
 
   // Obvious human/escalation phrasing → start FSM immediately (hybrid trigger)
   const wantsHuman = /(?:\bנציג(?:\s?אנושי)?\b|דבר\s?עם\s?נציג|לתקשר\s?עם\s?מישהו|אדם|human|representative|talk to (?:a|someone)|agent|support human)/i.test(userText);
@@ -455,7 +521,7 @@ app.post('/api/chat', async (req, res) => {
       systemMsgs.push({
         role: 'system',
         content:
-          'Do not greet again. Do not present a global options/menu unless the user explicitly asks for "options" or "menu". Answer directly and tersely.'
+          'אל תחזור לברך שוב. אל תציג תפריט/אפשרויות כלליות אלא אם המשתמש ביקש זאת במפורש. אם מצב הסלמה פעיל – אל תציג תפריטים כלל; שאל רק את שם/טלפון/נושא החסרים. ענה ישירות ובקצרה.'
       });
     }
     try {
@@ -534,7 +600,7 @@ app.post('/api/chat', async (req, res) => {
         systemMsgs2.push({
           role: 'system',
           content:
-            'Do not greet again. Do not present a global options/menu unless the user explicitly asks for "options" or "menu". Answer directly and tersely.'
+            'אל תחזור לברך שוב. אל תציג תפריט/אפשרויות כלליות אלא אם המשתמש ביקש זאת במפורש. אם מצב הסלמה פעיל – אל תציג תפריטים כלל; שאל רק את שם/טלפון/נושא החסרים. ענה ישירות ובקצרה.'
         });
       }
       response = await chatCreate(
@@ -617,6 +683,7 @@ app.get('/api/debug/openai', async (req, res) => {
 });
 
 
+
 app.get('/api/debug/logs', async (req, res) => {
   try {
     const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 100));
@@ -627,6 +694,18 @@ app.get('/api/debug/logs', async (req, res) => {
     res.json({ file, count: items.length, items });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// Quick Airtable find debug (for local troubleshooting)
+app.get('/api/debug/find', async (req, res) => {
+  try {
+    const orderId = req.query.orderId ? String(req.query.orderId) : '';
+    const email   = req.query.email   ? String(req.query.email)   : '';
+    const result  = await getOrderStatusTool({ orderId, email });
+    res.json({ ok: true, query: { orderId, email }, result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
   }
 });
 
