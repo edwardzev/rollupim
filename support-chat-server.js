@@ -47,10 +47,13 @@ function getSession(sid) {
   }
   let s = SESSIONS.get(sid);
   if (!s) {
-    s = { history: [], ts: now };
+    s = { history: [], ts: now, escalation: null, firstTurn: true };
     SESSIONS.set(sid, s);
   }
   s.ts = now;
+  if (!('escalation' in s)) {
+    s.escalation = null;
+  }
   return s;
 }
 
@@ -62,6 +65,26 @@ function appendToHistory(s, entry) {
   if (s.history.length > maxMsgs) s.history.splice(0, s.history.length - maxMsgs);
   s.ts = Date.now();
 }
+
+// --- Escalation helpers ---
+function extractPhone(text='') {
+  const t = String(text);
+  const m = t.match(/(?:\+972[-\s]?|0)(?:[2-9]|5\d)[-\s]?\d{7,8}/);
+  return m ? m[0].replace(/[^\d+]/g, '') : '';
+}
+function extractName(text='') {
+  const t = String(text).trim();
+  // Heuristic: 2+ letters, not just digits
+  if (/^[\p{L}.'\-\s]{2,}$/u.test(t) && !/\d/.test(t)) {
+    return t.split(/\s+/).slice(0,3).join(' ');
+  }
+  return '';
+}
+function extractQuestion(text='') {
+  const t = String(text).trim();
+  return t.length >= 4 ? t : '';
+}
+
 
 // cookies + redaction
 function parseCookies(str='') {
@@ -126,18 +149,66 @@ setInterval(loadPromptFile, 5 * 60 * 1000);
 
 
 const app = express();
-app.use(cors());
+// CORS — allow dev UI and Vercel, and send credentials
+const allowedOrigins = [
+  process.env.CORS_ORIGIN || 'http://localhost:5173',
+  'http://127.0.0.1:5173',
+];
+// allow any *.vercel.app
+const vercelRe = /\.vercel\.app$/;
+
+const corsOptions = {
+  origin(origin, cb) {
+    if (!origin) return cb(null, true); // curl/postman or same-origin
+    if (allowedOrigins.includes(origin) || vercelRe.test(origin)) return cb(null, true);
+    return cb(new Error(`Not allowed by CORS: ${origin}`));
+  },
+  credentials: true,
+  methods: ['GET', 'HEAD', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+};
+
+app.use(cors(corsOptions));
+app.use((req, res, next) => {
+   if (req.method === 'OPTIONS') {
+     const origin = req.headers.origin || '';
+     res.header('Access-Control-Allow-Origin', origin);
+     res.header('Vary', 'Origin');
+     res.header('Access-Control-Allow-Credentials', 'true');
+     res.header('Access-Control-Allow-Methods', 'GET,HEAD,POST,OPTIONS');
+     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+     return res.sendStatus(204);
+   }
+   next();
+ });
 app.use(express.json({ limit: '2mb' }));
 
 // ----- OpenAI -----
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'gpt-5';
+
+// Defensive sanitizer: remove any accidental temperature field
+function sanitizeOpenAIParams(p) {
+  const o = { ...p };
+  if ('temperature' in o) delete o.temperature;
+  return o;
+}
+
+// Strict wrapper: logs and strips temperature always
+async function chatCreate(params) {
+  if (params && Object.prototype.hasOwnProperty.call(params, 'temperature')) {
+    console.warn('[openai] stripping temperature from params:', params.temperature);
+  }
+  const clean = sanitizeOpenAIParams(params || {});
+  return openai.chat.completions.create(clean);
+}
 
 const FALLBACK_PROMPT = `
 You are Rollupim’s friendly support assistant.
 - Mirror the user’s language (Hebrew/English).
-- If the user provides an order number, email or phone → call getOrderStatus.
-- For general questions → call getKBAnswer(question). If unknown, say so and ask to rephrase.
+- If the user provides an order number or email → call getOrderStatus.
+- For escalation to a human representative, use updateAdmin if relevant.
+- If you do not know the answer to a question, politely admit you don't know.
 - Be concise, warm, and avoid making up facts.
 `.trim();
 
@@ -152,13 +223,12 @@ const tools = [
     function: {
       name: 'getOrderStatus',
       description:
-        'Lookup order status in Airtable by orderId, email, or phone (any one is enough). Returns status and doc links if found.',
+        'Lookup order status in Airtable by orderId or email (one is enough). Returns status and doc links if found.',
       parameters: {
         type: 'object',
         properties: {
           orderId: { type: 'string', description: 'Order number (digits/letters as used in Airtable)' },
-          email: { type: 'string', description: 'Email address' },
-          phone: { type: 'string', description: 'Phone number, preferably including country code' }
+          email: { type: 'string', description: 'Email address' }
         },
         additionalProperties: false
       }
@@ -204,10 +274,6 @@ async function findOrder({ orderId, email, phone }) {
   const clauses = [];
   if (orderId) clauses.push(`{${F.ORDER_ID}} = '${orderId.replace(/'/g, "''")}'`);
   if (email) clauses.push(`LOWER({${F.EMAIL}}) = '${email.toLowerCase().replace(/'/g, "''")}'`);
-  if (phone) {
-    const normalized = phone.replace(/\s+/g, '');
-    clauses.push(`SUBSTITUTE({${F.PHONE}}, ' ', '') = '${normalized.replace(/'/g, "''")}'`);
-  }
 
   if (!clauses.length) return null;
 
@@ -279,14 +345,6 @@ async function updateAdminTool(args = {}) {
 }
 
 
-// Heuristic: detect likely order lookups (email/phone/long digits)
-function looksLikeOrderQuery(txt) {
-  const t = String(txt || '').toLowerCase();
-  if (/@/.test(t)) return true;                 // email
-  if (/\d{6,}/.test(t)) return true;            // long number (order id)
-  if (/\+?\d[\d\s\-()]{6,}/.test(t)) return true; // phone-ish
-  return false;
-}
 
 // ----- Chat route -----
 // Minimal stateless turn: we send system + user; model can call the tool; we respond.
@@ -299,6 +357,87 @@ app.post('/api/chat', async (req, res) => {
 
   const sess = getSession(sessionId);
 
+  // Obvious human/escalation phrasing → start FSM immediately (hybrid trigger)
+  const wantsHuman = /(?:\bנציג(?:\s?אנושי)?\b|דבר\s?עם\s?נציג|לתקשר\s?עם\s?מישהו|אדם|human|representative|talk to (?:a|someone)|agent|support human)/i.test(userText);
+  if (wantsHuman && !(sess.escalation && sess.escalation.active)) {
+    sess.escalation = { active: true, data: { name: '', phone: '', question: '' } };
+    const reply = 'בשמחה! איך קוראים לך?';
+    appendToHistory(sess, { role: 'user', content: userText });
+    appendToHistory(sess, { role: 'assistant', content: reply });
+    sess.firstTurn = false;
+    await logTurn({ ts:new Date().toISOString(), sessionId, messageId, role:'assistant', text:redact(reply), toolUsed:null, model:DEFAULT_MODEL, latencyMs: 0 });
+    return res.json({ reply });
+  }
+
+  // Track model for this request
+  let useModel = DEFAULT_MODEL;
+
+  // --- Escalation state machine (server-driven) ---
+  if (sess.escalation && sess.escalation.active) {
+    const esc = sess.escalation;
+    esc.data = esc.data || { name:'', phone:'', question:'' };
+
+    // Try to fill missing fields from this message
+    if (!esc.data.name) {
+      const n = extractName(userText);
+      if (n) esc.data.name = n;
+    }
+    if (!esc.data.phone) {
+      const p = extractPhone(userText);
+      if (p) esc.data.phone = p;
+    }
+    if (!esc.data.question && (esc.data.name || esc.data.phone)) {
+      const q = extractQuestion(userText);
+      if (q) esc.data.question = q;
+    }
+
+    // Decide next prompt
+    if (!esc.data.name) {
+      const reply = 'בשמחה! איך קוראים לך?';
+      appendToHistory(sess, { role: 'user', content: userText });
+      appendToHistory(sess, { role: 'assistant', content: reply });
+      sess.firstTurn = false;
+      await logTurn({ ts:new Date().toISOString(), sessionId, messageId, role:'assistant', text:redact(reply), toolUsed:null, model:useModel, latencyMs: Date.now() - t0 });
+      return res.json({ reply });
+    }
+    if (!esc.data.phone) {
+      const reply = `תודה ${esc.data.name}! מה מספר הטלפון שלך?`;
+      appendToHistory(sess, { role: 'user', content: userText });
+      appendToHistory(sess, { role: 'assistant', content: reply });
+      sess.firstTurn = false;
+      await logTurn({ ts:new Date().toISOString(), sessionId, messageId, role:'assistant', text:redact(reply), toolUsed:null, model:useModel, latencyMs: Date.now() - t0 });
+      return res.json({ reply });
+    }
+    if (!esc.data.question) {
+      const reply = 'קיבלתי ✔️ מה הנושא או הבעיה בקצרה?';
+      appendToHistory(sess, { role: 'user', content: userText });
+      appendToHistory(sess, { role: 'assistant', content: reply });
+      sess.firstTurn = false;
+      await logTurn({ ts:new Date().toISOString(), sessionId, messageId, role:'assistant', text:redact(reply), toolUsed:null, model:useModel, latencyMs: Date.now() - t0 });
+      return res.json({ reply });
+    }
+
+    // We have all three — call updateAdmin
+    const toolResult = await updateAdminTool({
+      name: esc.data.name,
+      phone: esc.data.phone,
+      question: esc.data.question
+    });
+
+    // Reset escalation regardless of success
+    sess.escalation = null;
+
+    const reply = toolResult.success
+      ? 'הפרטים הועברו לנציג 👩‍💼 נחזור אליך בהקדם. תודה!'
+      : `לא הצלחתי להעביר כרגע לנציג: ${toolResult.error || 'שגיאה'}. אפשר לנסות שוב או להשאיר פרטים כאן.`;
+
+    appendToHistory(sess, { role: 'user', content: userText });
+    appendToHistory(sess, { role: 'assistant', content: reply });
+    sess.firstTurn = false;
+    await logTurn({ ts:new Date().toISOString(), sessionId, messageId, role:'assistant', text:redact(reply), toolUsed:'updateAdmin', model:useModel, latencyMs: Date.now() - t0 });
+    return res.json({ reply });
+  }
+
   await logTurn({
     ts: new Date().toISOString(),
     sessionId,
@@ -307,20 +446,55 @@ app.post('/api/chat', async (req, res) => {
     text: redact(userText)
   });
 
-
   try {
-    // First pass: allow tool calling
-    let response = await openai.chat.completions.create({
-      model: MODEL,
-      messages: [
-        { role: 'system', content: effectiveSystemPrompt() },
-        ...sess.history,
-        { role: 'user', content: userText }
-      ],
-      tools,
-      tool_choice: 'auto',
-      temperature: 0.2
-    });
+    // First pass: allow tool calling, with retry-on-model-not-found
+    let response;
+    // Greeting suppression logic for system prompt
+    const systemMsgs = [{ role: 'system', content: effectiveSystemPrompt() }];
+    if (!sess.firstTurn) {
+      systemMsgs.push({
+        role: 'system',
+        content:
+          'Do not greet again. Do not present a global options/menu unless the user explicitly asks for "options" or "menu". Answer directly and tersely.'
+      });
+    }
+    try {
+      response = await chatCreate(
+        {
+          model: useModel,
+          messages: [
+            ...systemMsgs,
+            ...sess.history,
+            { role: 'user', content: userText }
+          ],
+          tools,
+          tool_choice: 'auto',
+          max_completion_tokens: 450
+        }
+      );
+    } catch (err) {
+      const msg = (err?.message || '').toLowerCase();
+      const status = err?.status || err?.response?.status;
+      if (status === 404 || (msg.includes('model') && msg.includes('not') && msg.includes('found'))) {
+        console.warn(`[openai] model "${useModel}" not found; falling back to gpt-4o-mini`);
+        useModel = 'gpt-4o-mini';
+        response = await chatCreate(
+          {
+            model: useModel,
+            messages: [
+              ...systemMsgs,
+              ...sess.history,
+              { role: 'user', content: userText }
+            ],
+            tools,
+            tool_choice: 'auto',
+            max_completion_tokens: 450
+          }
+        );
+      } else {
+        throw err;
+      }
+    }
 
     let msg = response.choices[0].message;
 
@@ -339,25 +513,47 @@ app.post('/api/chat', async (req, res) => {
       if (name === 'getOrderStatus') {
         toolResult = await getOrderStatusTool(args);
       } else if (name === 'updateAdmin') {
+        const needPhone = !args?.phone;
+        const needQuestion = !args?.question;
+        if (needPhone || needQuestion) {
+          // Start/continue escalation FSM to gather missing info
+          sess.escalation = { active: true, data: { name: args?.name || '', phone: args?.phone || '', question: args?.question || '' } };
+          const prompt = needPhone ? 'מה מספר הטלפון שלך?' : 'מה הנושא או הבעיה בקצרה?';
+          appendToHistory(sess, { role: 'user', content: userText });
+          appendToHistory(sess, { role: 'assistant', content: prompt });
+          sess.firstTurn = false;
+          await logTurn({ ts:new Date().toISOString(), sessionId, messageId, role:'assistant', text:redact(prompt), toolUsed:null, model:useModel, latencyMs: Date.now() - t0 });
+          return res.json({ reply: prompt });
+        }
         toolResult = await updateAdminTool(args);
       }
 
       // Second pass: give the tool result so the model can phrase the final answer nicely
-      response = await openai.chat.completions.create({
-        model: MODEL,
-        messages: [
-          { role: 'system', content: effectiveSystemPrompt() },
-          { role: 'user', content: userText },
-          msg, // the tool call message
-          {
-            role: 'tool',
-            tool_call_id: call.id,
-            name,
-            content: JSON.stringify(toolResult)
-          }
-        ],
-        temperature: 0.2
-      });
+      const systemMsgs2 = [{ role: 'system', content: effectiveSystemPrompt() }];
+      if (!sess.firstTurn) {
+        systemMsgs2.push({
+          role: 'system',
+          content:
+            'Do not greet again. Do not present a global options/menu unless the user explicitly asks for "options" or "menu". Answer directly and tersely.'
+        });
+      }
+      response = await chatCreate(
+        {
+          model: useModel,
+          messages: [
+            ...systemMsgs2,
+            { role: 'user', content: userText },
+            msg, // the tool call message
+            {
+              role: 'tool',
+              tool_call_id: call.id,
+              name,
+              content: JSON.stringify(toolResult)
+            }
+          ],
+          max_completion_tokens: 450
+        }
+      );
       msg = response.choices[0].message;
     }
 
@@ -366,6 +562,7 @@ app.post('/api/chat', async (req, res) => {
 
     appendToHistory(sess, { role: 'user', content: userText });
     appendToHistory(sess, { role: 'assistant', content: finalText });
+    sess.firstTurn = false;
 
     await logTurn({
       ts: new Date().toISOString(),
@@ -376,13 +573,15 @@ app.post('/api/chat', async (req, res) => {
       kbHit: false,
       kbTitle: null,
       toolUsed: msg.tool_calls?.[0]?.function?.name || null,
-      model: MODEL,
+      model: useModel,
       latencyMs: Date.now() - t0
     });
 
     return res.json({ reply: finalText });
   } catch (err) {
-    console.error('chat error', err);
+    const status = err?.status || err?.response?.status;
+    const data = err?.response?.data || err?.data;
+    console.error('chat error', { status, message: err?.message, data });
     return res.status(500).json({ reply: 'תקלה זמנית. נסו שוב בעוד רגע.' });
   }
 });
@@ -392,8 +591,29 @@ function safeParseJSON(s) {
 }
 
 // Health check
+
 app.get('/api/ping', (req, res) => {
   res.type('text/plain').send('pong');
+});
+
+// Minimal OpenAI self-test (no tools, no temp)
+app.get('/api/debug/openai', async (req, res) => {
+  try {
+    const r = await chatCreate({
+      model: DEFAULT_MODEL,
+      messages: [
+        { role: 'system', content: 'You are a test.' },
+        { role: 'user', content: 'Say OK.' }
+      ]
+    });
+    const out = r?.choices?.[0]?.message?.content || null;
+    res.json({ ok: true, model: DEFAULT_MODEL, reply: out });
+  } catch (err) {
+    const status = err?.status || err?.response?.status;
+    const data = err?.response?.data || err?.data;
+    console.error('/api/debug/openai error', { status, message: err?.message, data });
+    res.status(500).json({ ok: false, status, message: err?.message, data });
+  }
 });
 
 
@@ -410,6 +630,68 @@ app.get('/api/debug/logs', async (req, res) => {
   }
 });
 
+// ----- Escalation form route -----
+// CORS preflight for escalation form
+app.options('/api/escalate', cors(corsOptions));
+// Accepts { name, phone, question } and notifies admin via WhatsApp
+app.post('/api/escalate', async (req, res) => {
+  try {
+    const name = String(req.body?.name || '').trim();
+    const phone = String(req.body?.phone || '').trim();
+    const question = String(req.body?.question || '').trim();
+
+    if (!phone || !question) {
+      return res.status(400).json({ ok: false, error: 'phone and question are required' });
+    }
+
+    const result = await updateAdminTool({ name, phone, question });
+    // log the escalation attempt (with light masking)
+    await logTurn({
+      ts: new Date().toISOString(),
+      role: 'server',
+      event: 'escalate',
+      name,
+      phone: phone.replace(/.(?=.{2})/g, '•'),
+      question: (question || '').slice(0, 160),
+      ok: !!result?.success
+    });
+
+    if (result.success) {
+      return res.json({
+        ok: true,
+        message: 'הפרטים הועברו לנציג 👩‍💼 נחזור אליך בהקדם.',
+        sentTo: result.sentTo || null
+      });
+    } else {
+      // also record failure in log
+      await logTurn({
+        ts: new Date().toISOString(),
+        role: 'server',
+        event: 'escalate_error',
+        name,
+        phone: phone.replace(/.(?=.{2})/g, '•'),
+        error: result.error || 'Failed to notify admin'
+      });
+      return res.status(502).json({
+        ok: false,
+        error: result.error || 'Failed to notify admin'
+      });
+    }
+  } catch (err) {
+    console.error('/api/escalate error', err?.message || err);
+    await logTurn({
+      ts: new Date().toISOString(),
+      role: 'server',
+      event: 'escalate_exception',
+      error: err?.message || String(err)
+    });
+    return res.status(500).json({ ok: false, error: 'internal_error' });
+  }
+});
+
 // ----- Start -----
 const port = process.env.PORT || 3001;
-app.listen(port, () => console.log(`Support server (assistant mode) on :${port}`));
+app.listen(port, () => {
+  console.log(`Support server (assistant mode) on :${port}`);
+  console.log('[boot]', { file: __filename, model: DEFAULT_MODEL });
+});

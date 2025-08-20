@@ -323,6 +323,23 @@ const CustomerDetailsSection = () => {
         body: JSON.stringify(orderPayload),
       });
 
+      // brief delay to avoid race with redirect
+      await new Promise((r) => setTimeout(r, 400));
+
+      // preview + debug (safe-guarded)
+      try {
+        toast({
+          title: 'מעבר לתשלום מאובטח',
+          description: `${itemizedSummary || 'הזמנה'} | סה"כ ${grandTotal}₪ | #${orderId}`,
+        });
+      } catch {}
+      if (typeof window !== 'undefined') {
+        try {
+          console.log('iCount payUrl:', payUrl);
+          console.log('iCount cd:', description);
+        } catch {}
+      }
+
       clearAllPendingUploads?.();
 
       // ===== redirect to iCount checkout =====

@@ -67,9 +67,10 @@
   // - Otherwise, use relative '/api' so Vercel Functions work without CORS.
   const API_BASE = (typeof window.ROLLUPIM_API_BASE === 'string' && window.ROLLUPIM_API_BASE)
     ? window.ROLLUPIM_API_BASE.replace(/\/+$/,'')
-    : ((location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+    : ((location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.port === '5173')
         ? 'http://localhost:3001'
         : '');
+  console.log('[chat] API_BASE =', API_BASE || '(relative /api)');
 
   const host = document.createElement('div');
   host.id = 'rollupim-chat-root';
@@ -181,12 +182,27 @@ const shadow = host.attachShadow({ mode: 'open' });
 
     .btn{ pointer-events:auto; }
     #openBtn{ pointer-events:auto; }
+
+    .options { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+    .opt { background:#e2e8f0; border:0; border-radius:8px; padding:6px 10px; cursor:pointer; font-size:14px; }
+    .opt:hover { background:#cbd5e1; }
+
+      /* Escalation mini-form */
+      .esc { padding:10px; background:#fff; border:1px solid #e5e7eb; border-radius:12px; margin-top:8px; }
+      .esc h4 { margin:0 0 8px 0; font-size:16px; }
+      .row { display:flex; flex-direction:column; gap:6px; margin:8px 0; }
+      .row label { font-size:14px; color:#334155; }
+      .row input, .row textarea { border:1px solid #e5e7eb; border-radius:10px; padding:10px; font-size:15px; width:100%; }
+      .row textarea { min-height:76px; resize:vertical; }
+      .actions { display:flex; gap:8px; justify-content:flex-start; margin-top:8px; }
+      .primary { background:#2563eb; color:#fff; border:0; border-radius:10px; padding:8px 14px; cursor:pointer; font-size:15px; }
+      .secondary { background:#e2e8f0; color:#111827; border:0; border-radius:10px; padding:8px 14px; cursor:pointer; font-size:15px; }
   `;
 
   const html = `
     <style>${css}</style>
     <!-- Updated label -->
-    <button class="btn" id="openBtn" aria-label="פתח תמיכה">אנחנו כאן <br>לכל  שאלה </button>
+    <button class="btn" id="openBtn" aria-label="פתח תמיכה">אנחנו כאן <br>לכל שאלה </button>
 
     <div class="wrap hidden" id="panel" role="dialog" aria-label="Rollupim Support">
       <div class="bar">
@@ -194,8 +210,36 @@ const shadow = host.attachShadow({ mode: 'open' });
         <button class="x" id="closeBtn" aria-label="סגור">×</button>
       </div>
       <div class="body" id="msgs">
-        <div class="msg a">שלום! איך אפשר לעזור? כדי לבדוק סטטוס הזמנה, כתבו מספר הזמנה / מייל / טלפון.</div>
+        <div class="msg a">
+          שלום! איך אפשר לעזור? בחרו אחת מהאפשרויות:
+          <div class="options">
+            <button class="opt" data-value="סטטוס הזמנה">סטטוס הזמנה</button>
+            <button class="opt" data-value="משלוחים">משלוחים</button>
+            <button class="opt" data-value="נציג אנושי">נציג אנושי</button>
+            <button class="opt" data-value="שאלה על מוצר">שאלה על מוצר</button>
+          </div>
+        </div>
       </div>
+        <!-- Inline escalation form (hidden by default) -->
+        <div class="esc hidden" id="escFrm" role="form" aria-label="פנייה לנציג">
+          <h4>נציג אנושי — השאר/י פרטים ונחזור אליך</h4>
+          <div class="row">
+            <label for="escName">שם מלא</label>
+            <input id="escName"/>
+          </div>
+          <div class="row">
+            <label for="escPhone">טלפון</label>
+            <input id="escPhone"/>
+          </div>
+          <div class="row">
+            <label for="escQuestion">הנושא בקצרה</label>
+            <textarea id="escQuestion" placeholder="כמה מילים על מה מדובר"></textarea>
+          </div>
+          <div class="actions">
+            <button class="primary" id="escSubmit">שלח לנציג</button>
+            <button class="secondary" id="escCancel">בטל</button>
+          </div>
+        </div>
       <div class="foot">
         <input class="in" id="input" placeholder="כתוב הודעה…" />
         <button class="send" id="sendBtn">שלח</button>
@@ -212,6 +256,12 @@ const shadow = host.attachShadow({ mode: 'open' });
   const sendBtn = $('#sendBtn');
   const chatInput = $('#input');
   const chatMsgs  = $('#msgs');
+  const escFrm = $('#escFrm');
+  const escName = $('#escName');
+  const escPhone = $('#escPhone');
+  const escQuestion = $('#escQuestion');
+  const escSubmit = $('#escSubmit');
+  const escCancel = $('#escCancel');
 
   // Defensive delegation in case direct binding fails on some devices
   shadow.addEventListener('click', (e) => {
@@ -247,9 +297,54 @@ const shadow = host.attachShadow({ mode: 'open' });
     chatMsgs.scrollTop = chatMsgs.scrollHeight;
   }
 
+  function openEscalate(prefill = {}) {
+    try { escName.value = prefill.name || ''; } catch {}
+    try { escPhone.value = prefill.phone || ''; } catch {}
+    try { escQuestion.value = prefill.question || ''; } catch {}
+    try { shadow.querySelector('.options')?.classList.add('hidden'); } catch {}
+    escFrm.classList.remove('hidden');
+    chatInput.closest('.foot').classList.add('hidden');
+    // Offer a short assistant line to guide the user
+    push('assistant', 'כדי לחבר לנציג, מלא/י שם, טלפון ונושא ואעביר מיד ✅');
+    try { escName.focus(); } catch {}
+  }
+  function closeEscalate() {
+    escFrm.classList.add('hidden');
+    chatInput.closest('.foot').classList.remove('hidden');
+    try { shadow.querySelector('.options')?.classList.remove('hidden'); } catch {}
+  }
+  async function submitEscalate() {
+    const name = (escName.value || '').trim();
+    const phone = (escPhone.value || '').trim();
+    const question = (escQuestion.value || '').trim();
+    if (!name || !phone || !question) {
+      push('assistant', 'נא למלא שם מלא, טלפון ושאלה קצרה ✍️');
+      return;
+    }
+    try {
+      const r = await fetch(`${API_BASE}/api/escalate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ name, phone, question })
+      });
+      if (!r.ok) throw new Error('bad status ' + r.status);
+      const data = await r.json().catch(() => ({}));
+      push('assistant', data?.ok === false
+        ? (data?.message || 'לא הצלחתי להעביר כרגע. נסו שוב.')
+        : 'תודה, הפרטים הועברו לנציג 👩‍💼 נחזור אליך בהקדם.');
+      closeEscalate();
+    } catch (e) {
+      console.error(e);
+      push('assistant', 'שגיאה בשליחה. נסו שוב עוד רגע.');
+    }
+  }
+
   openBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); console.log('[chat] open'); toggle(true); });
   openBtn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); console.log('[chat] open (touch)'); toggle(true); }, { passive: false });
   closeBtn.addEventListener('click', () => { console.log('[chat] close'); toggle(false); });
+  escSubmit.addEventListener('click', submitEscalate);
+  escCancel.addEventListener('click', (e) => { e.preventDefault(); closeEscalate(); });
 
   async function send() {
     const text = (chatInput.value || '').trim();
@@ -261,11 +356,16 @@ const shadow = host.attachShadow({ mode: 'open' });
       const r = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ text })
       });
       if (!r.ok) throw new Error('bad status ' + r.status);
       const data = await r.json();
-      push('assistant', data.reply || 'אוקיי');
+      let replyText = data.reply || 'אוקיי';
+      const wantsEscalation = !!(data.escalate === true || (typeof replyText === 'string' && replyText.includes('[[ESCALATE]]')));
+      if (typeof replyText === 'string') replyText = replyText.replace('[[ESCALATE]]','').trim();
+      push('assistant', replyText);
+      if (wantsEscalation) openEscalate();
     } catch (e) {
       push('assistant', '❌ לא הצלחתי להתחבר לשרת. ודאו שהשרת פועל ושהפרוקסי מוגדר.');
       console.error(e);
@@ -275,6 +375,20 @@ const shadow = host.attachShadow({ mode: 'open' });
   sendBtn.addEventListener('click', send);
   chatInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+
+  chatMsgs.addEventListener('click', (e) => {
+    const btn = e.target.closest('.opt');
+    if (btn) {
+      const val = btn.getAttribute('data-value') || '';
+      // If the user picked the human/agent option, open the escalation form directly.
+      if (/נציג/.test(val) || /human|agent|representative/i.test(val)) {
+        openEscalate();
+        return;
+      }
+      chatInput.value = val;
+      send();
+    }
   });
 })();
 </script>

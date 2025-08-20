@@ -1,0 +1,6 @@
+
+
+User-agent: *
+Allow: /
+
+Sitemap: https://rollupim.co.il/sitemap.xml

@@ -29,21 +29,11 @@ const MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 // ---------- file helpers (Vercel: read-only, OK) ----------
 const ROOT = process.cwd();
 const P_PROMPT   = [path.join(ROOT, 'content', 'prompt.md')];
-const P_KB       = [path.join(ROOT, 'content', 'kb.json')];
-const P_SYNONYMS = [path.join(ROOT, 'content', 'synonyms.json')];
 
 let PROMPT = '';
-let KB = [];
-let SYNS = {};
 let LAST_LOAD = 0;
 const RELOAD_MS = 60_000; // soft reload every minute
 
-async function tryReadJSON(paths) {
-  for (const p of paths) {
-    try { return JSON.parse(await fs.readFile(p, 'utf8')); } catch {}
-  }
-  return null;
-}
 async function tryReadText(paths) {
   for (const p of paths) {
     try { return await fs.readFile(p, 'utf8'); } catch {}
@@ -54,61 +44,80 @@ async function ensureLoaded() {
   const now = Date.now();
   if (now - LAST_LOAD < RELOAD_MS) return;
   PROMPT = (await tryReadText(P_PROMPT)) || '';
-  KB = (await tryReadJSON(P_KB)) || [];
-  SYNS = (await tryReadJSON(P_SYNONYMS)) || {};
   LAST_LOAD = now;
 }
 
-// ---------- KB matching with synonyms ----------
-const s = (x) => String(x || '').toLowerCase();
-function scoreKB(q, item) {
-  const Q = s(q);
-  const hay = [s(item.title || item.q), s(item.answer || item.a), s((item.tags || []).join(' '))].join(' ');
-  if (!Q || !hay) return 0;
+// ---------- order identifier extraction ----------
+function extractOrderIdentifier(txt) {
+  const t = String(txt || '').toLowerCase();
+  // email
+  const email = t.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  if (email) return { kind: 'email', value: email[0] };
+  // phone (loose)
+  const phone = t.match(/\+?\d[\d\s\-()]{6,}/);
+  if (phone) return { kind: 'phone', value: phone[0].replace(/\s+/g, '') };
+  // order id like R-13 / R13 / ABC-123 / 123456
+  const oid = t.match(/\b([a-z]{1,4}-?\d{2,})\b/i);
+  if (oid) return { kind: 'orderId', value: oid[1] };
+  // long numeric fallback
+  const longNum = t.match(/\b\d{6,}\b/);
+  if (longNum) return { kind: 'orderId', value: longNum[0] };
+  return null;
+}
 
-  // expand tokens using SYNS
-  const tokens = Q.split(/\s+/).filter(Boolean);
-  const expanded = new Set(tokens);
-  for (const t of tokens) {
-    for (const [canon, syns] of Object.entries(SYNS)) {
-      const canonL = s(canon);
-      const list = Array.isArray(syns) ? syns.map(s) : [];
-      if (t === canonL || list.includes(t)) {
-        expanded.add(canonL);
-        for (const v of list) expanded.add(v);
-      }
+// ---------- Airtable lookup ----------
+async function getOrderStatus(ident) {
+  const {
+    AIRTABLE_API_KEY,
+    AIRTABLE_BASE_ID,
+    AIRTABLE_TABLE_ORDERS = 'Orders',
+    AIRTABLE_F_ORDER_ID = 'מספר הזמנה',
+    AIRTABLE_F_EMAIL    = 'Email',
+    AIRTABLE_F_PHONE    = 'Phone',
+    AIRTABLE_F_STATUS   = 'Status',
+    AIRTABLE_F_LAST_UPDATE = 'עדכון אחרון',
+    AIRTABLE_F_INVOICE_URL = 'חשבונית',
+    AIRTABLE_F_DELIVERY_URL = 'BILL',
+  } = process.env;
+
+  if (!AIRTABLE_API_KEY || !AIRTABLE_BASE_ID) {
+    return { found: false, id: ident.value, note: 'Airtable env not configured' };
+  }
+
+  // Build formula by identifier kind
+  let formula;
+  if (ident.kind === 'email') {
+    formula = `LOWER({${AIRTABLE_F_EMAIL}}) = LOWER("${ident.value}")`;
+  } else if (ident.kind === 'phone') {
+    formula = `SUBSTITUTE({${AIRTABLE_F_PHONE}}," ","") = "${ident.value}"`;
+  } else {
+    // orderId
+    formula = `{${AIRTABLE_F_ORDER_ID}} = "${ident.value}"`;
+  }
+
+  const url = `https://api.airtable.com/v0/${encodeURIComponent(AIRTABLE_BASE_ID)}/${encodeURIComponent(AIRTABLE_TABLE_ORDERS)}?maxRecords=1&filterByFormula=${encodeURIComponent(formula)}`;
+  const r = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${AIRTABLE_API_KEY}`,
+      'Content-Type': 'application/json'
     }
+  });
+  if (!r.ok) {
+    const txt = await r.text().catch(()=>'');
+    throw new Error(`Airtable ${r.status}: ${txt}`);
   }
-
-  let sc = 0;
-  if (hay.includes(Q)) sc += 3;
-  for (const w of expanded) {
-    if (w.length >= 3 && hay.includes(w)) sc += 1;
-  }
-  return sc;
-}
-function looksLikeOrderQuery(txt) {
-  const t = s(txt);
-  if (/@/.test(t)) return true;
-  if (/\d{6,}/.test(t)) return true;
-  if (/\+?\d[\d\s\-()]{6,}/.test(t)) return true;
-  return false;
-}
-async function getKBAnswer(question) {
-  if (!KB.length) return { found: false };
-  let best = null, bestScore = 0;
-  for (const item of KB) {
-    const sc = scoreKB(question, item);
-    if (sc > bestScore) { bestScore = sc; best = item; }
-  }
-  if (bestScore === 0) return { found: false };
+  const data = await r.json();
+  const rec = Array.isArray(data.records) && data.records[0];
+  if (!rec) return { found: false, id: ident.value };
+  const f = rec.fields || {};
   return {
     found: true,
-    best: {
-      title: best.title || best.q || '',
-      answer: best.answer || best.a || ''
-    },
-    score: bestScore
+    id: ident.value,
+    status: f[AIRTABLE_F_STATUS] || 'לא צוין',
+    updatedAt: f[AIRTABLE_F_LAST_UPDATE] || null,
+    invoiceUrl: f[AIRTABLE_F_INVOICE_URL] || null,
+    deliveryUrl: f[AIRTABLE_F_DELIVERY_URL] || null,
+    raw: { id: rec.id }
   };
 }
 
@@ -126,11 +135,25 @@ export default async function handler(req, res) {
 
   await ensureLoaded();
 
-  // 1) Fast KB pre-check (skip model when possible)
-  if (!looksLikeOrderQuery(userText)) {
-    const kbHit = await getKBAnswer(userText);
-    if (kbHit?.found && kbHit.best?.answer) {
-      return res.status(200).json({ reply: kbHit.best.answer });
+  // 1) If identifier provided, check order status immediately (no confirmation)
+  const ident = extractOrderIdentifier(userText);
+  if (ident) {
+    try {
+      const r = await getOrderStatus(ident);
+      if (r.found) {
+        const parts = [];
+        parts.push(`סטטוס הזמנה (${r.id}): **${r.status}**`);
+        if (r.updatedAt) parts.push(`עודכן לאחרונה: ${r.updatedAt}`);
+        return res.status(200).json({ reply: parts.join('\n') });
+      }
+      return res.status(200).json({
+        reply: `קיבלתי את המזהה **${r.id || ident.value}**. לא נמצאה הזמנה במערכת לפי הפרט שסיפקת. אפשר לשלוח מייל/טלפון או לוודא את מספר ההזמנה.`,
+      });
+    } catch (e) {
+      console.error('order-status error:', e?.message);
+      return res.status(200).json({
+        reply: `לא הצלחתי לבדוק כרגע את הסטטוס עבור **${ident.value}**. נסו שוב עוד רגע, או שלחו לנו הודעה קצרה ונבדוק ידנית.`
+      });
     }
   }
 
@@ -139,7 +162,7 @@ export default async function handler(req, res) {
     PROMPT ? PROMPT : '',
     'Rules: Mirror the user’s language (Hebrew/English). Be concise (≤ 4 sentences).',
     'If user asks for factual business details (prices, production times, delivery, warranty), answer directly using known facts.',
-    'If user provides order id/email/phone, ask permission to check and explain what you’ll do.',
+    'If user provides an order id, email, or phone, check the order status immediately (no confirmation).',
   ].filter(Boolean).join('\n\n');
 
   const messages = [
