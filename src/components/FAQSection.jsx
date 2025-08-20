@@ -111,17 +111,12 @@ const FAQSection = () => {
               אנחנו כאן לעזור! צרו קשר ונענה על כל השאלות שלכם
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <a
-                href="tel:050-1234567"
-                className="bg-white text-blue-600 px-6 py-3 rounded-xl font-semibold hover:bg-gray-100 transition-colors"
-              >
-                📞 050-1234567
-              </a>
+              
               <a
                 href="mailto:info@rollupim.co.il"
                 className="bg-blue-700 text-white px-6 py-3 rounded-xl font-semibold hover:bg-blue-800 transition-colors"
               >
-                ✉️ info@rollupim.co.il
+                info@rollupim.co.il
               </a>
             </div>
           </div>
