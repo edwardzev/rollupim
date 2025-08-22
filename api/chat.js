@@ -159,7 +159,15 @@ export default async function handler(req, res) {
       if (r.found) {
         const parts = [];
         parts.push(`סטטוס הזמנה (${r.id}): **${r.status}**`);
-        if (r.updatedAt) parts.push(`עודכן לאחרונה: ${r.updatedAt}`);
+        if (r.updatedAt) {
+          try {
+            const d = new Date(r.updatedAt);
+            const formatted = d.toLocaleString('he-IL', { dateStyle: 'long', timeStyle: 'short' });
+            parts.push(formatted);
+          } catch {
+            parts.push(r.updatedAt);
+          }
+        }
         return res.status(200).json({ reply: parts.join('\n') });
       }
       return res.status(200).json({
