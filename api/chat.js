@@ -3,6 +3,8 @@ import fs from 'fs/promises';
 import path from 'node:path';
 import OpenAI from 'openai';
 
+export const config = { runtime: 'nodejs' };
+
 // ---------- body parsing helper for Node runtime ----------
 async function readJSON(req) {
   // If the framework has already parsed the body:
@@ -68,7 +70,7 @@ async function getOrderStatus(ident) {
   const {
     AIRTABLE_API_KEY,
     AIRTABLE_BASE_ID,
-    AIRTABLE_TABLE_ORDERS = 'Orders',
+    AIRTABLE_STATUS_TABLE = 'rollupim',
     AIRTABLE_F_ORDER_ID = 'מספר הזמנה',
     AIRTABLE_F_EMAIL    = 'Email',
     AIRTABLE_F_PHONE    = 'Phone',
@@ -87,13 +89,14 @@ async function getOrderStatus(ident) {
   if (ident.kind === 'email') {
     formula = `LOWER({${AIRTABLE_F_EMAIL}}) = LOWER("${ident.value}")`;
   } else if (ident.kind === 'phone') {
-    formula = `SUBSTITUTE({${AIRTABLE_F_PHONE}}," ","") = "${ident.value}"`;
+    const normPhone = ident.value.replace(/[^\d+]/g, '');
+    formula = `SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE({${AIRTABLE_F_PHONE}}," ",""),"-",""),"(",""),")","") = "${normPhone}"`;
   } else {
     // orderId
     formula = `{${AIRTABLE_F_ORDER_ID}} = "${ident.value}"`;
   }
 
-  const url = `https://api.airtable.com/v0/${encodeURIComponent(AIRTABLE_BASE_ID)}/${encodeURIComponent(AIRTABLE_TABLE_ORDERS)}?maxRecords=1&filterByFormula=${encodeURIComponent(formula)}`;
+  const url = `https://api.airtable.com/v0/${encodeURIComponent(AIRTABLE_BASE_ID)}/${encodeURIComponent(AIRTABLE_STATUS_TABLE)}?maxRecords=1&filterByFormula=${encodeURIComponent(formula)}`;
   const r = await fetch(url, {
     headers: {
       Authorization: `Bearer ${AIRTABLE_API_KEY}`,
@@ -102,6 +105,7 @@ async function getOrderStatus(ident) {
   });
   if (!r.ok) {
     const txt = await r.text().catch(()=>'');
+    console.error('[airtable] HTTP', r.status, txt?.slice?.(0, 200) || txt);
     throw new Error(`Airtable ${r.status}: ${txt}`);
   }
   const data = await r.json();
