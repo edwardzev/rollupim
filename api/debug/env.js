@@ -1,5 +1,4 @@
 // api/debug/env.js
-export const config = { runtime: 'nodejs18.x' }; // be explicit
 
 export default async function handler(req, res) {
   try {
