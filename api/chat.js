@@ -49,19 +49,31 @@ async function ensureLoaded() {
 
 // ---------- order identifier extraction ----------
 function extractOrderIdentifier(txt) {
-  const t = String(txt || '').toLowerCase();
-  // email
-  const email = t.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  const original = String(txt || '');
+  const lower = original.toLowerCase();
+
+  // email (case-insensitive)
+  const email = lower.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
   if (email) return { kind: 'email', value: email[0] };
+
   // phone (loose)
-  const phone = t.match(/\+?\d[\d\s\-()]{6,}/);
+  const phone = original.match(/\+?\d[\d\s\-()]{6,}/);
   if (phone) return { kind: 'phone', value: phone[0].replace(/\s+/g, '') };
-  // order id like R-13 / R13 / ABC-123 / 123456
-  const oid = t.match(/\b([a-z]{1,4}-?\d{2,})\b/i);
-  if (oid) return { kind: 'orderId', value: oid[1] };
+
+  // order id like R-13 / R 13 / R13 / ABC-123 (preserve letter case as uppercase)
+  const m = original.match(/\b([A-Za-z]{1,4})[\s-]?(\d{2,})\b/);
+  if (m) {
+    const letters = m[1].toUpperCase();
+    const digits = m[2];
+    const withDash = `${letters}-${digits}`;
+    const noDash = `${letters}${digits}`;
+    return { kind: 'orderId', value: withDash, variants: [withDash, noDash] };
+  }
+
   // long numeric fallback
-  const longNum = t.match(/\b\d{6,}\b/);
-  if (longNum) return { kind: 'orderId', value: longNum[0] };
+  const longNum = original.match(/\b\d{6,}\b/);
+  if (longNum) return { kind: 'orderId', value: longNum[0], variants: [longNum[0]] };
+
   return null;
 }
 
@@ -92,8 +104,10 @@ async function getOrderStatus(ident) {
     const normPhone = ident.value.replace(/[^\d+]/g, '');
     formula = `SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE({${AIRTABLE_F_PHONE}}," ",""),"-",""),"(",""),")","") = "${normPhone}"`;
   } else {
-    // orderId
-    formula = `{${AIRTABLE_F_ORDER_ID}} = "${ident.value}"`;
+    // orderId (case-insensitive; support dashed and non-dashed variants)
+    const variants = Array.isArray(ident.variants) && ident.variants.length ? ident.variants : [ident.value];
+    const ors = variants.map(v => `LOWER({${AIRTABLE_F_ORDER_ID}}) = LOWER("${v.replace(/"/g, '\\"')}")`);
+    formula = ors.length === 1 ? ors[0] : `OR(${ors.join(',')})`;
   }
 
   const url = `https://api.airtable.com/v0/${encodeURIComponent(AIRTABLE_BASE_ID)}/${encodeURIComponent(AIRTABLE_STATUS_TABLE)}?maxRecords=1&filterByFormula=${encodeURIComponent(formula)}`;
