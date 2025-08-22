@@ -1,5 +1,5 @@
 // api/debug/airtable.js
-export const config = { runtime: 'nodejs18.x' };
+export const config = { runtime: 'nodejs22.x' };
 
 export default async function handler(req, res) {
   const {
