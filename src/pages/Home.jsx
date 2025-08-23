@@ -44,38 +44,38 @@ function Home() {
     <div className="min-h-screen bg-white">
       <Helmet>
         <html lang="he" dir="rtl" />
-        <title>רולאפ להרכבה עצמית – הכי זול בישראל | פרינט מרקט</title>
+        <title>Rollupim – רולאפ במחיר הטוב ביותר בישראל</title>
         <meta
           name="description"
-          content="רולאפ להרכבה עצמית במחיר הכי זול בישראל. העלו את הגרפיקה שלכם, קבלו תצוגה מקדימה ומשלוח מהיר לכל הארץ."
+          content="הזמינו רולאפ להרכבה עצמית באתר הרשמי – איכות גבוהה, מחיר משתלם ומשלוח לכל הארץ."
         />
         <meta name="keywords" content="רולאפ, רול אפ, הרכבה עצמית, זול, ישראל, הדפסה, גרפיקה" />
-        <link rel="canonical" href="https://start.printmarket.club/" />
+        <link rel="canonical" href="https://rollupim.co.il/" />
 
         {/* Open Graph / WhatsApp / Facebook */}
-        <meta property="og:title" content="רולאפ להרכבה עצמית – הכי זול בישראל" />
+        <meta property="og:title" content="Rollupim – רולאפ במחיר הטוב ביותר בישראל" />
         <meta
           property="og:description"
-          content="מחיר נמוך, איכות גבוהה. העלו קובץ וקבלו הדמיה מיידית ומשלוח מהיר."
+          content="הזמינו רולאפ אונליין – איכות גבוהה, מחיר משתלם ומשלוח מהיר."
         />
         <meta property="og:type" content="website" />
-        <meta property="og:url" content="https://start.printmarket.club/" />
+        <meta property="og:url" content="https://rollupim.co.il/" />
         <meta
           property="og:image"
-          content="https://start.printmarket.club/og/rollup-hero.jpg"
+          content="https://rollupim.co.il/og-preview.jpg"
         />
         <meta property="og:locale" content="he_IL" />
 
         {/* Twitter */}
         <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content="רולאפ להרכבה עצמית – הכי זול בישראל" />
+        <meta name="twitter:title" content="Rollupim – רולאפ במחיר הטוב ביותר בישראל" />
         <meta
           name="twitter:description"
-          content="העלו קובץ וקבלו הדמיה מיידית. משלוח לכל הארץ."
+          content="הזמינו רולאפ אונליין – איכות גבוהה, מחיר משתלם ומשלוח מהיר."
         />
         <meta
           name="twitter:image"
-          content="https://start.printmarket.club/og/rollup-hero.jpg"
+          content="https://rollupim.co.il/og-preview.jpg"
         />
 
         {/* WebSite JSON-LD */}
@@ -83,12 +83,12 @@ function Home() {
           {JSON.stringify({
             '@context': 'https://schema.org',
             '@type': 'WebSite',
-            url: 'https://start.printmarket.club/',
-            name: 'פרינט מרקט – רולאפ להרכבה עצמית',
+            url: 'https://rollupim.co.il/',
+            name: 'Rollupim – רולאפ להרכבה עצמית',
             inLanguage: 'he',
             potentialAction: {
               '@type': 'SearchAction',
-              target: 'https://start.printmarket.club/?s={search_term_string}',
+              target: 'https://rollupim.co.il/?s={search_term_string}',
               'query-input': 'required name=search_term_string',
             },
           })}
