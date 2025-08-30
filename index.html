@@ -14,9 +14,10 @@
       function gtag(){dataLayer.push(arguments);}
       gtag('js', new Date());
       gtag('config', 'AW-17446628010');
-      <!-- GA4 config (uses the same gtag loader) -->
+      // GA4 config (uses the same gtag loader)
       gtag('config', 'G-WNZT4SZK8J');
     </script>
+   
     <!-- Canonical URL -->
     <link rel="canonical" href="https://rollupim.co.il/" />
 
@@ -67,6 +68,48 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+
+    <!-- Conversion fire on iCount return (?paid=1) -->
+    <script>
+      (function () {
+        try {
+          const usp = new URLSearchParams(location.search);
+          if (usp.get('paid') !== '1') return;
+
+          const tx  = localStorage.getItem('last_order_id') || undefined;
+          const val = Number(localStorage.getItem('last_order_amount'));
+
+          // de-dup per transaction id
+          if (tx) {
+            const k = 'ads_conv_' + tx;
+            if (localStorage.getItem(k) === '1') return;
+            localStorage.setItem(k, '1');
+          }
+
+          function fire() {
+            if (typeof window.gtag !== 'function') return setTimeout(fire, 200);
+            // Google Ads conversion — TODO: replace LABEL below
+            window.gtag('event','conversion',{
+              send_to:'AW-17446628010/CB6bCKelkI4bEObztp1B',
+              transaction_id: tx,
+              value: isNaN(val) ? undefined : val,
+              currency:'ILS'
+            });
+
+            // Optional: GA4 purchase (only if we have tx & value)
+            if (tx && !isNaN(val)) {
+              window.gtag('event','purchase',{
+                currency:'ILS',
+                transaction_id: tx,
+                value: val,
+                items:[{ item_id:'rollup-85x200', item_name:'Rollup 85×200', price: val, quantity: 1 }]
+              });
+            }
+          }
+          fire();
+        } catch (e) { console.warn('[conv-return]', e); }
+      })();
+    </script>
 
     <!-- Rollupim Support Chat (MVP Step 1) -->
     <script>

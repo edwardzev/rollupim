@@ -5,6 +5,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { ShoppingCart, MapPin, CheckCircle } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { pendingUploads, clearAllPendingUploads } from '@/lib/pendingUploads';
+import { beginOrderAndGoToIcount } from '@/lib/beginOrder';
 
 const CLOUD_NAME = 'dkdpwgsyl';
 const UPLOAD_PRESET = 'rollupim';
@@ -342,9 +343,13 @@ const CustomerDetailsSection = () => {
 
       clearAllPendingUploads?.();
 
-      // ===== redirect to iCount checkout =====
-      window.location.href = orderPayload.payment_link; // send customer to iCount payment page
-      return; // stop further handling
+      await beginOrderAndGoToIcount({
+        orderId,
+        totalILS: grandTotal,
+        email: customerInfo.email,
+        icountUrl: orderPayload.payment_link,
+      });
+      return;
     } catch (err) {
       console.error(err);
       toast({
