@@ -416,7 +416,7 @@ const PreviewSection = () => {
                   תצוגה מקדימה
                 </h3>
                 <div className="relative w-full max-w-2xl mx-auto">
-                  <img  alt="Rollup banner mockup in a flower shop setting" src="/public/flowershop mockup.png" />
+                  <img  alt="Rollup banner mockup in a flower shop setting" src={`${import.meta.env.BASE_URL}mockups/flowershop-mockup.png`} />
                   {previewImage ? (
                     <div
                       className="absolute overflow-hidden"
