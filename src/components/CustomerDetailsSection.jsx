@@ -121,6 +121,7 @@ const CustomerDetailsSection = () => {
   const [orderDetails, setOrderDetails] = useState({ products: [], addons: [], quantity: 1 });
   const [customerInfo, setCustomerInfo] = useState({ name: '', phone: '', email: '', address: '', city: '' });
   const [total, setTotal] = useState(0);
+  const [extraFee, setExtraFee] = useState(Number(localStorage.getItem('checkout_extra_ils') || 0));
   const [needsShipping, setNeedsShipping] = useState(false);
 
   const [sending, setSending] = useState(false);
@@ -153,16 +154,23 @@ const CustomerDetailsSection = () => {
         return sum + price * qty;
       }, 0);
 
-      setTotal(productsTotal + addonsTotal);
+      const extra = Number(localStorage.getItem('checkout_extra_ils') || 0);
+      setTotal(productsTotal + addonsTotal + extra);
 
       setNeedsShipping((od.addons || []).some(a =>
         `${a?.id ?? a?.key ?? a?.slug ?? ''}`.toLowerCase().includes('shipping')
       ));
     };
 
+    const onExtra = (e) => setExtraFee(Number(e?.detail?.amount ?? Number(localStorage.getItem('checkout_extra_ils') || 0)));
+    window.addEventListener('checkout:extraFeeChanged', onExtra);
+
     calculate();
     const interval = setInterval(calculate, 500);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('checkout:extraFeeChanged', onExtra);
+    };
   }, []);
 
   const handleCheckout = async (e) => {
@@ -187,8 +195,9 @@ const CustomerDetailsSection = () => {
       // ===== files present? =====
       const primaryQueued = !!pendingUploads.main;
       const legacyPrimary = safeParse(localStorage.getItem('uploaded_file'));
-      if (!primaryQueued && !legacyPrimary) {
-        toast({ title: 'חסר קובץ גרפי', description: 'אנא העלו קובץ גרפי לפני ההזמנה.', variant: 'destructive' });
+      const override = localStorage.getItem('file_override') === 'true';
+      if (!primaryQueued && !legacyPrimary && !override) {
+        toast({ title: 'חסר קובץ גרפי', description: 'אנא העלו קובץ גרפי לפני ההזמנה או בחרו בשירות הכנת קובץ.', variant: 'destructive' });
         return;
       }
 
@@ -246,7 +255,8 @@ const CustomerDetailsSection = () => {
         return sum + price * qty;
       }, 0);
 
-      const grandTotal = productsTotal + addonsTotal;
+      const extra = Number(localStorage.getItem('checkout_extra_ils') || 0);
+      const grandTotal = productsTotal + addonsTotal + extra;
 
       // ===== full matrices (qty 0 for unselected) =====
       const selectedById = new Map((odNow.products || []).map(p => [String(p.id), Number(p.quantity || 0)]));
@@ -263,6 +273,9 @@ const CustomerDetailsSection = () => {
         const qty = selected ? (a.perUnit ? units : 1) : 0;
         return { id: a.id, name: a.name, price: a.price, quantity: qty };
       });
+      if (extra > 0) {
+        addon_lines.push({ id: 'file_fix', name: 'שירות הכנת קובץ להדפסה', price: extra, quantity: 1 });
+      }
 
       // ===== itemized summary for iCount description (sanitized & compact) =====
       const _itemizedParts = [
@@ -316,6 +329,8 @@ const CustomerDetailsSection = () => {
         total: grandTotal,
         date: new Date().toISOString(),
         payment_link: payUrl,
+        file_fix: localStorage.getItem('file_override') === 'true',
+        file_fix_amount: Number(localStorage.getItem('checkout_extra_ils') || 0),
       };
 
       await fetch(PABBLY_WEBHOOK, {
@@ -363,7 +378,7 @@ const CustomerDetailsSection = () => {
   };
 
   return (
-    <section id="customer-details" className="py-20 bg-gray-50">
+    <section id="customer-details" className="py-20 bg-gray-50 scroll-mt-24 lg:scroll-mt-28">
       <div className="container mx-auto px-4">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
@@ -453,6 +468,12 @@ const CustomerDetailsSection = () => {
           </div>
 
           <div className="bg-gray-100 rounded-xl p-6 mb-6">
+            {extraFee > 0 && (
+              <div className="flex justify-between items-center text-sm mb-3">
+                <span>שירות הכנת קובץ</span>
+                <span>+₪{extraFee}</span>
+              </div>
+            )}
             <div className="flex justify-between items-center text-2xl font-bold">
               <span>סה"כ לתשלום:</span>
               <span className="text-blue-600">{total} ש"ח</span>

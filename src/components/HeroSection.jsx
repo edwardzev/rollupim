@@ -53,6 +53,17 @@ const HeroSection = () => {
             >
               רולאפ במחיר הטוב ביותר בישראל
             </motion.h1>
+            <motion.p
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 0.3 }}
+              className="price-line text-3xl lg:text-5xl font-extrabold text-blue-700 mb-4"
+            >
+              <span className="align-middle">החל מ־</span>
+              <span className="mx-1">149</span>
+              <span className="align-middle">ש״ח</span>
+              <span className="text-gray-600 text-base lg:text-lg font-semibold mr-2">כולל מע״מ</span>
+            </motion.p>
             
             <motion.p
               initial={{ opacity: 0, y: 30 }}
@@ -60,7 +71,7 @@ const HeroSection = () => {
               transition={{ duration: 0.8, delay: 0.4 }}
               className="hero-subtitle text-xl lg:text-2xl text-gray-600 mb-8"
             >
-              <span className="gradient-text font-semibold">למה לשלם יותר?</span>
+              <span >למה לשלם יותר?</span>
               <br/>
               מרכיבים לבד וחוסכים כסף!
             </motion.p>

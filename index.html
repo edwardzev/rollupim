@@ -140,6 +140,24 @@
   // Move to TOP-RIGHT
   Object.assign(host.style, { position:'fixed', left:'16px', top:'calc(16px + env(safe-area-inset-top))', zIndex: '2147483647' });
   host.style.pointerEvents = 'auto';
+  // --- Responsive placement: bottom on mobile so it won't overlap header ---
+  function placeChatButton() {
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    if (isMobile) {
+      host.style.top = 'auto';
+      host.style.bottom = 'calc(16px + env(safe-area-inset-bottom))';
+      host.style.left = '16px';
+      host.style.right = 'auto'; // set to '16px' if you prefer bottom-right
+    } else {
+      host.style.bottom = 'auto';
+      host.style.top = 'calc(16px + env(safe-area-inset-top))';
+      host.style.left = '16px';
+      host.style.right = 'auto';
+    }
+  }
+  placeChatButton();
+  window.addEventListener('resize', placeChatButton, { passive: true });
+  window.addEventListener('orientationchange', placeChatButton, { passive: true });
   document.body.appendChild(host);
 
 // ---- reveal when the video section is reached ----
@@ -173,15 +191,21 @@ if (target && 'IntersectionObserver' in window) {
   // Safety fallback if user never reaches the video (optional)
   setTimeout(() => { if (host.style.opacity === '0') reveal(); }, 12000);
 } else {
-  // Fallback: crude scroll trigger
+  // Fallback: scroll trigger with mobile-friendly threshold
   function onScrollFallback() {
-    if (window.scrollY > 600) {
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    const threshold = isMobile ? 200 : 600;
+    if (window.scrollY > threshold) {
       reveal();
       window.removeEventListener('scroll', onScrollFallback);
     }
   }
   window.addEventListener('scroll', onScrollFallback, { passive: true });
-  setTimeout(() => { if (host.style.opacity === '0') reveal(); }, 12000);
+
+  // Safety timeout only on desktop to avoid covering header on mobile
+  if (!window.matchMedia('(max-width: 768px)').matches) {
+    setTimeout(() => { if (host.style.opacity === '0') reveal(); }, 12000);
+  }
 }
 
 const shadow = host.attachShadow({ mode: 'open' });
@@ -240,7 +264,7 @@ const shadow = host.attachShadow({ mode: 'open' });
       .wrap { width: 96vw; height: 65dvh; border-radius:14px; }
       .bar  { font-size:16px; }
       .msg  { font-size:15px; }
-      .btn  { width:110px; height:58px; font-size:16px; border-radius:12px; line-height:1.15; white-space:normal; padding:6px 8px; }
+      .btn  { width:100px; height:50px; font-size:15px; border-radius:12px; line-height:1.15; white-space:normal; padding:6px 8px; }
     }
 
     .btn{ pointer-events:auto; }

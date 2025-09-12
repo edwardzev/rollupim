@@ -32,7 +32,19 @@ const FAQSection = () => {
     },
     {
       question: 'אפשר לקבל עזרה עם הגרפיקה?',
-      answer: 'אתם יכולים לצפות בסרטון ההדרכה באתר שלנו. אם תרצה עזרה נוספת, ניתן לפנות לפרילנסרים: - Dana: dana@gmail.com - Ofer: ofer@gmail.com - Alina: alina@gmail.com.'
+      answer: (
+        <>
+          אתם יכולים לצפות בסרטון ההדרכה באתר שלנו.
+          <br />
+          אם תרצה עזרה נוספת,&nbsp;
+          <a
+            href="#customer-details"
+            className="text-blue-600 underline hover:text-blue-800"
+          >
+            פתחו את טופס עזרה בהכנת קובץ
+          </a>
+        </>
+      )
     }
   ];
 
