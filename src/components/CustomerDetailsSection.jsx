@@ -24,6 +24,7 @@ function buildICountPayUrl({
   phone,
   email,
   keepUtm = true,
+  extra = {},
 }) {
   const base = `https://app.icount.co.il/m/${pageId}`;
   const params = new URLSearchParams();
@@ -35,6 +36,17 @@ function buildICountPayUrl({
   if (phone) params.set('contact_phone', phone);
   if (email) params.set('contact_email', email);
   if (keepUtm) params.set('utm_nooverride', '1');
+  // Add extra fields as m__<key> params
+  if (extra && typeof extra === 'object') {
+    for (const [k, v] of Object.entries(extra)) {
+      if (v === undefined) continue;
+      let val = v;
+      if (typeof v === 'object') {
+        try { val = JSON.stringify(v); } catch { continue; }
+      }
+      params.set(`m__${k}`, String(val));
+    }
+  }
   return `${base}?${params.toString()}`;
 }
 
@@ -301,18 +313,7 @@ const CustomerDetailsSection = () => {
       const [firstName = '', lastName = ''] = (customerInfo.name || '').trim().split(/\s+/, 2);
       const description = `${itemizedSummary} | סה"כ ${grandTotal}₪ | Order #${orderId}`.slice(0, 220);
 
-      const payUrl = buildICountPayUrl({
-        pageId: ICOUNT_PAGE_ID,
-        sum: grandTotal,
-        description,
-        fullName: customerInfo.name,
-        firstName,
-        lastName,
-        phone: customerInfo.phone,
-        email: customerInfo.email,
-        keepUtm: true,
-      });
-
+      // Build the payload first (mirrored to iCount via m__*), then create the iCount URL from it
       const orderPayload = {
         id: orderId,
         products: product_lines,
@@ -328,10 +329,25 @@ const CustomerDetailsSection = () => {
         },
         total: grandTotal,
         date: new Date().toISOString(),
-        payment_link: payUrl,
+        payment_link: '', // filled after URL is built
         file_fix: localStorage.getItem('file_override') === 'true',
         file_fix_amount: Number(localStorage.getItem('checkout_extra_ils') || 0),
       };
+
+      const payUrl = buildICountPayUrl({
+        pageId: ICOUNT_PAGE_ID,
+        sum: grandTotal,
+        description,
+        fullName: customerInfo.name,
+        firstName,
+        lastName,
+        phone: customerInfo.phone,
+        email: customerInfo.email,
+        keepUtm: true,
+        extra: orderPayload, // mirror entire payload with m__ prefix
+      });
+
+      orderPayload.payment_link = payUrl;
 
       await fetch(PABBLY_WEBHOOK, {
         method: 'POST',
