@@ -91,13 +91,22 @@ const makePublicIdPrefix = (customerName) => {
 // iCount checkout page ID from your account
 const ICOUNT_PAGE_ID = "0da93"; // iCount checkout page ID from your account
 
-// Unsigned upload (PDF -> resource "raw", images -> "auto")
-async function uploadToCloudinary(file, prefix) {
+// Unsigned upload with optional custom public_id, context (Hebrew OK), and tags
+async function uploadToCloudinary(file, opts = {}) {
+  const { prefix, publicId, context, tags } = opts || {};
   const resource = file?.type === 'application/pdf' ? 'raw' : 'auto';
   const fd = new FormData();
   fd.append('file', file);
   fd.append('upload_preset', UPLOAD_PRESET);
-  if (prefix) fd.append('public_id_prefix', prefix); // allowed for unsigned
+  // Prefer explicit public_id; fall back to prefix if given
+  if (publicId) {
+    fd.append('public_id', publicId);
+  } else if (prefix) {
+    // If only prefix provided, Cloudinary will still generate the tail; we prefer explicit names
+    fd.append('public_id', `${prefix}${Date.now()}`);
+  }
+  if (context) fd.append('context', context);
+  if (tags) fd.append('tags', tags);
 
   const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/${resource}/upload`, {
     method: 'POST',
@@ -125,6 +134,8 @@ const ADDON_CATALOG = [
   { id: 'assembly',  name: 'הרכבה מראש',    price: 19, perUnit: true  },
   { id: 'shipping',  name: 'משלוח עם שליח', price: 49, perUnit: false },
 ];
+
+let __uploadCounter = 0; // resets on mount; fine for per-session naming
 
 /* ------------------------------ component ---------------------------------- */
 const CustomerDetailsSection = () => {
@@ -225,9 +236,20 @@ const CustomerDetailsSection = () => {
       const uploadedMap = {};
       const allUrls = [];
       const prefix = makePublicIdPrefix(customerInfo.name);
+      // Hebrew-friendly metadata (stored in context/tags; URLs remain ASCII-safe)
+      const hebName = (customerInfo.name || '').trim();
+      const mkPublicId = (kind) => {
+        __uploadCounter += 1;
+        return `${prefix}${__uploadCounter}_${kind}`; // e.g., client_09-08-25_14-32_1_primary
+      };
+      const commonContext = `client=${hebName}|source=site`;
 
       if (pendingUploads.main) {
-        const cloud = await uploadToCloudinary(pendingUploads.main, prefix);
+        const cloud = await uploadToCloudinary(pendingUploads.main, {
+          publicId: mkPublicId('primary'),
+          context: `${commonContext}|kind=primary`,
+          tags: `orders,primary,${hebName}`,
+        });
         uploadedMap.primary = {
           url: cloud.secure_url,
           public_id: cloud.public_id,
@@ -240,8 +262,28 @@ const CustomerDetailsSection = () => {
         allUrls.push(legacyPrimary.url);
       }
 
+      // Assist file (שירות הכנת קובץ) — upload if queued
+      if (pendingUploads.assist) {
+        const cloud = await uploadToCloudinary(pendingUploads.assist, {
+          publicId: mkPublicId('assist'),
+          context: `${commonContext}|kind=assist`,
+          tags: `orders,assist,${hebName}`,
+        });
+        uploadedMap.assist = {
+          url: cloud.secure_url,
+          public_id: cloud.public_id,
+          original_name: pendingUploads.assist.name,
+          size: pendingUploads.assist.size,
+        };
+        allUrls.push(cloud.secure_url);
+      }
+
       for (const [key, file] of Object.entries(pendingUploads.additional || {})) {
-        const cloud = await uploadToCloudinary(file, prefix);
+        const cloud = await uploadToCloudinary(file, {
+          publicId: mkPublicId(key || 'extra'),
+          context: `${commonContext}|kind=${key || 'extra'}`,
+          tags: `orders,${key || 'extra'},${hebName}`,
+        });
         uploadedMap[key] = {
           url: cloud.secure_url,
           public_id: cloud.public_id,
@@ -320,6 +362,7 @@ const CustomerDetailsSection = () => {
         addons: addon_lines,
         computed_units: units,
         file_urls: allUrls.join(','), // single field with comma-separated URLs
+        uploads: uploadedMap, // detailed map of uploaded assets
         customer: {
           name: customerInfo.name,
           phone: customerInfo.phone,

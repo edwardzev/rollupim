@@ -79,29 +79,46 @@ const HowItWorksSection = () => {
           ))}
         </div>
 
-        {/* Video placeholder */}
+        {/* Videos: two side-by-side within same width */}
         <motion.div
-  initial={{ opacity: 0, y: 30 }}
-  whileInView={{ opacity: 1, y: 0 }}
-  transition={{ duration: 0.8, delay: 0.6 }}
-  viewport={{ once: true }}
-  className="mt-16 text-center"
->
-  <div className="bg-white rounded-2xl p-8 shadow-lg max-w-2xl mx-auto">
-    <h3 className="text-2xl font-bold text-gray-900 mb-4">
-      סרטון הדרכה
-    </h3>
-    <div className="aspect-video rounded-xl overflow-hidden">
-      <video
-        src="/rollup-assembly.mp4"
-        controls
-        className="w-full h-full object-cover rounded-xl"
-      >
-        הדפדפן שלך לא תומך בווידאו
-      </video>
-    </div>
-  </div>
-</motion.div>
+          initial={{ opacity: 0, y: 30 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.6 }}
+          viewport={{ once: true }}
+          className="mt-16 text-center"
+        >
+          <div className="bg-white rounded-2xl p-6 shadow-lg max-w-2xl mx-auto">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Video 1: Assembly */}
+              <div className="rounded-xl overflow-hidden">
+                <h3 className="text-lg font-bold text-gray-900 mb-2">התקנת רולאפ</h3>
+                <div className="aspect-video rounded-xl overflow-hidden">
+                  <video
+                    src="/rollup-assembly.mp4"
+                    controls
+                    className="w-full h-full object-cover rounded-xl"
+                  >
+                    הדפדפן שלך לא תומך בווידאו
+                  </video>
+                </div>
+              </div>
+
+              {/* Video 2: Canva file prep */}
+              <div className="rounded-xl overflow-hidden">
+                <h3 className="text-lg font-bold text-gray-900 mb-2">הכנת קובץ</h3>
+                <div className="aspect-video rounded-xl overflow-hidden">
+                  <video
+                    src={`${import.meta.env.BASE_URL}file-prepare.mp4`}
+                    controls
+                    className="w-full h-full object-cover rounded-xl"
+                  >
+                    הדפדפן שלך לא תומך בווידאו
+                  </video>
+                </div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
       </div>
     </section>
   );
