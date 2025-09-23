@@ -107,21 +107,13 @@ const PreviewSection = () => {
       return;
     }
 
-    // Type & size
+    // Type
     const ALLOWED = ['image/jpeg','image/jpg','image/png','image/webp','application/pdf'];
-    const MAX_MB = 10;
     if (!ALLOWED.includes(file.type)) {
       setFileQuality({ status: 'bad', issues: ['פורמט הקובץ אינו נתמך (PDF, JPG, PNG, WEBP).'] });
       localStorage.setItem('file_quality_status', 'bad');
       setPreviewImage(null);
       toast({ title: 'קובץ לא נתמך', description: 'PDF, JPG, PNG, WEBP בלבד.', variant: 'destructive' });
-      return;
-    }
-    if (file.size > MAX_MB * 1024 * 1024) {
-      setFileQuality({ status: 'bad', issues: [`קובץ גדול מדי (מקס׳ ${MAX_MB}MB).`] });
-      localStorage.setItem('file_quality_status', 'bad');
-      setPreviewImage(null);
-      toast({ title: 'קובץ גדול מדי', description: `מקס׳ ${MAX_MB}MB`, variant: 'destructive' });
       return;
     }
 
@@ -158,25 +150,28 @@ const PreviewSection = () => {
         }
       }
 
+      // Always allow preview & checkout. If there are issues, downgrade to a non-blocking warning.
       if (issues.length) {
-        setFileQuality({ status: 'bad', issues });
-        localStorage.setItem('file_quality_status', 'bad');
-        setPreviewImage(null);
-        return;
+        setFileQuality({ status: 'warn', issues });
+        localStorage.setItem('file_quality_status', 'warn');
+      } else {
+        setFileQuality({ status: 'good', message: 'הקובץ עבר בדיקה ויועלה לאחר לחיצה על "המשך לתשלום".' });
+        localStorage.setItem('file_quality_status', 'good');
       }
 
-      // Passed: show preview and queue for checkout
+      // Show preview and queue for checkout (even if warn)
       setPreviewImage(dataUrl);
       if (previewPdfUrl) {
         try { URL.revokeObjectURL(previewPdfUrl); } catch {}
       }
       setPreviewPdfUrl(null);
-      setFileQuality({ status: 'good', message: 'הקובץ עבר בדיקה ויועלה לאחר לחיצה על "המשך לתשלום".' });
-      localStorage.setItem('file_quality_status', 'good');
       localStorage.setItem('primary_file_meta', JSON.stringify({ name: file.name, size: file.size }));
       const { setMainFile } = await import('@/lib/pendingUploads');
       setMainFile(file);
-      toast({ title: 'הקובץ מוכן', description: 'הקובץ יועלה בעת התשלום.' });
+      toast({
+        title: 'הקובץ נוסף',
+        description: issues.length ? 'ייתכן שאיכות ההדפסה נמוכה, נמשיך בכל מקרה.' : 'הקובץ יועלה בעת התשלום.'
+      });
       return;
     }
 
@@ -226,31 +221,28 @@ const PreviewSection = () => {
       );
     }
     
-    if (fileQuality.status === 'bad') {
+    if (fileQuality.status === 'warn') {
       return (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-4 p-4 rounded-lg bg-red-100 border border-red-300 text-red-800">
-           <div className="flex items-start">
-            <XCircle className="h-5 w-5 ml-3 flex-shrink-0 mt-1" />
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-4 p-4 rounded-lg bg-yellow-50 border border-yellow-300 text-yellow-800">
+          <div className="flex items-start">
+            <AlertTriangle className="h-5 w-5 ml-3 flex-shrink-0 mt-1" />
             <div>
-              <p className="font-bold">הקובץ לא מתאים</p>
+              <p className="font-bold">לתשומת לבכם</p>
               <ul className="list-disc list-inside mt-1">
                 {fileQuality.issues.map((issue, i) => <li key={i}>{issue}</li>)}
               </ul>
+              <p className="mt-2 text-sm">אפשר להמשיך לקופה. נוכל גם לעזור בהכנת הקובץ במידת הצורך.</p>
             </div>
-           </div>
-           <div className="mt-3 pt-3 border-t border-red-200 flex items-start text-sm">
-             <AlertTriangle className="h-4 w-4 ml-2 flex-shrink-0 mt-0.5" />
-             <p>אנו ממליצים בחום להחליף את הקובץ. קובץ איכותי יותר יוביל לתוצאה טובה יותר.</p>
-           </div>
-           <div className="mt-4 flex justify-center">
-             <button
-               type="button"
-               onClick={() => setAssistOpen(true)}
-               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-blue-600 text-white shadow hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-             >
-               צריך עזרה עם הכנת קובץ?
-             </button>
-           </div>
+          </div>
+          <div className="mt-3 flex justify-center">
+            <button
+              type="button"
+              onClick={() => setAssistOpen(true)}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-blue-600 text-white shadow hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              צריך עזרה עם הכנת קובץ?
+            </button>
+          </div>
         </motion.div>
       );
     }
@@ -277,6 +269,26 @@ const PreviewSection = () => {
         else if (mod.setAuxFile) mod.setAuxFile(assistFile);
         else if (mod.setMainFile) mod.setMainFile(assistFile); // fallback
       } catch {}
+
+      // Upload assist file to Dropbox proxy API
+      try {
+        const formData = new FormData();
+        formData.append('file', assistFile);
+        formData.append('path', '/orders');
+        formData.append('client', 'assist');
+        const uploadUrl = (import.meta.env.VITE_DBX_PROXY_URL || '/api/dbx-upload');
+        const resp = await fetch(uploadUrl, {
+          method: 'POST',
+          body: formData,
+        });
+        const json = await resp.json();
+        if (json && json.url) {
+          localStorage.setItem('assist_file_dbx_url', json.url);
+        }
+      } catch (err) {
+        // Ignore Dropbox upload errors, proceed anyway
+        // Optionally log: console.warn('Dropbox upload failed', err);
+      }
 
       localStorage.setItem('assist_file_meta', JSON.stringify({ name: assistFile.name, size: assistFile.size, notes: assistNotes }));
       localStorage.setItem('file_fix', 'true');
@@ -393,7 +405,7 @@ const PreviewSection = () => {
                       {previewImage ? "החלף קובץ" : "לחצו להעלאת תמונה"}
                     </p>
                     <p className="text-sm text-gray-500">
-                      PDF, JPG, PNG עד 10MB
+                      PDF, JPG, PNG
                     </p>
                   </label>
                 </div>

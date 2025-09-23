@@ -92,20 +92,44 @@ const BulkOffer = () => {
     }));
 
     const payload = {
-      id: Date.now(),
-      products: product_lines,
-      addons: addon_lines,
-      computed_units: qty,
-      file_urls: '',
+      version: '1.0',
+      event: 'bulk_offer',
+      source: 'site',
+      timestamp: new Date().toISOString(),
+      page_url: typeof window !== 'undefined' ? window.location.href : '',
+
+      id: String(Date.now()),
+      order_hint: '',
+      is_assist: false,
+      is_bulk: true,
+
       customer: {
         name,
         phone,
-        email: null,
-        address: null,
-        city: null,
+        email: '',
+        address: '',
+        city: ''
       },
+
+      bulk_quantity: qty,
+      computed_units: qty,
       total: 0,
-      date: new Date().toISOString(),
+
+      products: product_lines,
+      addons: addon_lines,
+
+      file_urls: '',
+      dropbox_urls: '',
+
+      uploads: {},
+
+      analysis: {
+        primary: { ratio: '', resolution: '' },
+        assist:  { ratio: '', resolution: '' }
+      },
+
+      notes: '',
+      chat_context: ''
     };
 
     try {

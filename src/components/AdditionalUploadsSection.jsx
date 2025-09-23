@@ -13,6 +13,7 @@ const AR_TOLERANCE = 0.10; // ±10%
 // דרישות מינימום (להתיישר עם ההעלאה הראשונה)
 const MIN_W_PX = 1270;
 const MIN_H_PX = 3000;
+// advisory only
 const MAX_MB = 10;
 
 const ALLOWED_TYPES = [
@@ -73,12 +74,12 @@ const AdditionalUploadsSection = ({ requiredUploads, onFilesUpdate }) => {
 
     const issues = [];
 
-    // 1) FILE TYPE
+    // 1) FILE TYPE (advisory only)
     if (!ALLOWED_TYPES.includes(file.type)) {
       issues.push('פורמט לא נתמך (PDF, JPG, PNG, WEBP)');
     }
 
-    // 2) FILE SIZE
+    // 2) FILE SIZE (advisory only)
     if (file.size > MAX_MB * 1024 * 1024) {
       issues.push(`קובץ גדול מדי (מקס׳ ${MAX_MB}MB)`);
     }
@@ -103,15 +104,9 @@ const AdditionalUploadsSection = ({ requiredUploads, onFilesUpdate }) => {
       }
     }
 
-    if (issues.length) {
-      fail(key, issues);
-      // remove from queue if previously set
-      setAdditionalFile(key, null);
-      setFiles(prev => ({ ...prev, [key]: null }));
-      return;
-    }
+    // We do not block anymore. We always queue the file; issues become a non-blocking warning panel.
 
-    // ✅ Valid: put the raw File into the in-memory queue; UI shows “ready”
+    // Always queue the raw File; UI shows status below (ok or warn)
     setAdditionalFile(key, file);
     setFiles(prev => ({
       ...prev,
@@ -119,23 +114,27 @@ const AdditionalUploadsSection = ({ requiredUploads, onFilesUpdate }) => {
     }));
 
     if (file.type.startsWith('image/')) {
-      ok(
-        key,
-        [
-          'פורמט תקין',
-          `רזולוציה מספקת: ‎${dims.w}×${dims.h}px`,
-          `יחס פרופורציות תקין: ${ar.toFixed(2)} ≈ ‎${ROLLUP_H_CM}/${ROLLUP_W_CM}`,
-          'הקובץ יועלה לאחר לחיצה על "המשך לתשלום".'
-        ],
-        dims,
-        ar
-      );
+      const details = [];
+      if (!issues.length) {
+        details.push('פורמט תקין');
+        if (dims) details.push(`רזולוציה מספקת: ‎${dims.w}×${dims.h}px`);
+        if (ar) details.push(`יחס פרופורציות תקין: ${ar.toFixed(2)} ≈ ‎${ROLLUP_H_CM}/${ROLLUP_W_CM}`);
+        details.push('הקובץ יועלה לאחר לחיצה על "המשך לתשלום".');
+        ok(key, details, dims, ar);
+      } else {
+        // downgrade to non-blocking warning
+        setResults(prev => ({ ...prev, [key]: { status: 'warn', issues, dims, ar } }));
+      }
     } else {
-      ok(key, [
-        'פורמט PDF תקין',
-        'לתשומת לב: בדיקת רזולוציה/יחס ל-PDF תבוצע בשלבי העימוד.',
-        'הקובץ יועלה לאחר לחיצה על "המשך לתשלום".'
-      ]);
+      if (!issues.length) {
+        ok(key, [
+          'פורמט PDF תקין',
+          'לתשומת לב: בדיקת רזולוציה/יחס ל-PDF תבוצע בשלבי העימוד.',
+          'הקובץ יועלה לאחר לחיצה על "המשך לתשלום".'
+        ]);
+      } else {
+        setResults(prev => ({ ...prev, [key]: { status: 'warn', issues } }));
+      }
     }
   };
 
@@ -161,6 +160,23 @@ const AdditionalUploadsSection = ({ requiredUploads, onFilesUpdate }) => {
           </ul>
           <div className="mt-3 text-xs text-red-700">
             אנו ממליצים בתחום להחליף את הקובץ. קובץ איכותי יותר יוביל לתוצאה טובה יותר.
+          </div>
+        </div>
+      );
+    }
+
+    if (result.status === 'warn') {
+      return (
+        <div className="mt-4 rounded-lg border border-yellow-200 bg-yellow-50 p-4 text-yellow-800">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="h-5 w-5" />
+            <span className="font-semibold">לתשומת לבכם</span>
+          </div>
+          <ul className="list-disc mr-5 space-y-1">
+            {result.issues.map((msg, i) => <li key={i}>{msg}</li>)}
+          </ul>
+          <div className="mt-3 text-xs text-yellow-700">
+            ניתן להמשיך לקופה. הקובץ יעלה כפי שהוא, ייתכן צורך בעזרה בעימוד.
           </div>
         </div>
       );
@@ -203,7 +219,6 @@ const AdditionalUploadsSection = ({ requiredUploads, onFilesUpdate }) => {
             type="file"
             id={key}
             className="hidden"
-            accept={ALLOWED_TYPES.join(',')}
             onChange={(e) => handleFileChange(e, key)}
           />
           <label htmlFor={key} className="cursor-pointer text-sm font-medium text-blue-600 hover:text-blue-800 transition">

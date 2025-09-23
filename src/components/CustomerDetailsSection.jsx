@@ -137,6 +137,38 @@ const ADDON_CATALOG = [
 
 let __uploadCounter = 0; // resets on mount; fine for per-session naming
 
+let __dbxCounter = 0; // sequential counter for Dropbox filenames
+
+// Client-side Dropbox upload via proxy API (non-blocking usage)
+async function uploadToDropbox(file, clientName, kind) {
+  try {
+    const endpoint = (import.meta?.env?.VITE_DBX_PROXY_URL) || '/api/dbx-upload';
+    if (!endpoint || !file) return null;
+
+    __dbxCounter += 1;
+    const baseName = (clientName || 'לקוח').toString().trim();
+    // Keep Hebrew; strip only filesystem-illegal chars
+    const safeClient = baseName.replace(/[\\/:"*?<>|]+/g, '-');
+    const ext = (file.name && file.name.includes('.')) ? file.name.split('.').pop() : 'bin';
+    const ts = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12); // YYYYMMDDHHMM
+    const newName = `${safeClient}_${ts}_${__dbxCounter}_${kind}.${ext}`;
+
+    const fd = new FormData();
+    // rename file for Dropbox while preserving MIME type
+    fd.append('file', new File([file], newName, { type: file.type || 'application/octet-stream' }));
+    fd.append('path', '/orders');
+    fd.append('client', safeClient);
+
+    const res = await fetch(endpoint, { method: 'POST', body: fd });
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => null);
+    const url = json?.url || null;
+    return url;
+  } catch {
+    return null;
+  }
+}
+
 /* ------------------------------ component ---------------------------------- */
 const CustomerDetailsSection = () => {
   const { toast } = useToast();
@@ -235,6 +267,7 @@ const CustomerDetailsSection = () => {
       // ===== upload queued files =====
       const uploadedMap = {};
       const allUrls = [];
+      const allDropboxUrls = [];
       const prefix = makePublicIdPrefix(customerInfo.name);
       // Hebrew-friendly metadata (stored in context/tags; URLs remain ASCII-safe)
       const hebName = (customerInfo.name || '').trim();
@@ -257,6 +290,14 @@ const CustomerDetailsSection = () => {
           size: pendingUploads.main.size,
         };
         allUrls.push(cloud.secure_url);
+        // Dropbox (non-blocking)
+        try {
+          const dbxUrl = await uploadToDropbox(pendingUploads.main, customerInfo.name, 'primary');
+          if (dbxUrl) {
+            uploadedMap.primary_dropbox = dbxUrl;
+            allDropboxUrls.push(dbxUrl);
+          }
+        } catch {}
       } else if (legacyPrimary?.url) {
         uploadedMap.primary = legacyPrimary;
         allUrls.push(legacyPrimary.url);
@@ -276,6 +317,20 @@ const CustomerDetailsSection = () => {
           size: pendingUploads.assist.size,
         };
         allUrls.push(cloud.secure_url);
+        // Dropbox (non-blocking) for assist
+        try {
+          const preSaved = localStorage.getItem('assist_file_dbx_url');
+          if (preSaved) {
+            uploadedMap.assist_dropbox = preSaved;
+            allDropboxUrls.push(preSaved);
+          } else {
+            const dbxUrl = await uploadToDropbox(pendingUploads.assist, customerInfo.name, 'assist');
+            if (dbxUrl) {
+              uploadedMap.assist_dropbox = dbxUrl;
+              allDropboxUrls.push(dbxUrl);
+            }
+          }
+        } catch {}
       }
 
       for (const [key, file] of Object.entries(pendingUploads.additional || {})) {
@@ -291,6 +346,14 @@ const CustomerDetailsSection = () => {
           size: file.size,
         };
         allUrls.push(cloud.secure_url);
+        // Dropbox (non-blocking) for additional files
+        try {
+          const dbxUrl = await uploadToDropbox(file, customerInfo.name, key || 'extra');
+          if (dbxUrl) {
+            uploadedMap[`${key}_dropbox`] = dbxUrl;
+            allDropboxUrls.push(dbxUrl);
+          }
+        } catch {}
       }
 
       // ===== recompute totals (safety) =====
@@ -351,6 +414,10 @@ const CustomerDetailsSection = () => {
       const itemizedSummary = _buildCompact(_cleanParts, 120);
 
       // ===== payload + iCount payment link =====
+      const primaryRatio = localStorage.getItem('file_primary_ratio') || null;
+      const primaryRes = localStorage.getItem('file_primary_resolution') || null;
+      const assistRatio = localStorage.getItem('file_assist_ratio') || null;
+      const assistRes = localStorage.getItem('file_assist_resolution') || null;
       const orderId = Date.now();
       const [firstName = '', lastName = ''] = (customerInfo.name || '').trim().split(/\s+/, 2);
       const description = `${itemizedSummary} | סה"כ ${grandTotal}₪ | Order #${orderId}`.slice(0, 220);
@@ -362,6 +429,7 @@ const CustomerDetailsSection = () => {
         addons: addon_lines,
         computed_units: units,
         file_urls: allUrls.join(','), // single field with comma-separated URLs
+        dropbox_urls: allDropboxUrls.join(','),
         uploads: uploadedMap, // detailed map of uploaded assets
         customer: {
           name: customerInfo.name,
@@ -375,6 +443,14 @@ const CustomerDetailsSection = () => {
         payment_link: '', // filled after URL is built
         file_fix: localStorage.getItem('file_override') === 'true',
         file_fix_amount: Number(localStorage.getItem('checkout_extra_ils') || 0),
+        analysis: {
+          primary: primaryRatio || primaryRes ? { ratio: primaryRatio, resolution: primaryRes } : null,
+          assist: assistRatio || assistRes ? { ratio: assistRatio, resolution: assistRes } : null,
+        },
+        m__primary_ratio: primaryRatio,
+        m__primary_resolution: primaryRes,
+        m__assist_ratio: assistRatio,
+        m__assist_resolution: assistRes,
       };
 
       const payUrl = buildICountPayUrl({
@@ -391,11 +467,70 @@ const CustomerDetailsSection = () => {
       });
 
       orderPayload.payment_link = payUrl;
+      // Build a separate payload for Pabbly (keep orderPayload & payUrl unchanged for iCount)
+      const pabblyPayload = {
+        version: '1.0',
+        event: 'checkout',
+        source: 'site',
+        timestamp: new Date().toISOString(),
+        page_url: (typeof window !== 'undefined' ? window.location.href : ''),
 
+        id: String(orderPayload.id ?? orderId),
+        order_hint: '',
+        is_assist: Boolean(orderPayload.file_fix || extra > 0 || pendingUploads.assist),
+        is_bulk: false,
+
+        customer: {
+          name: orderPayload.customer?.name || '',
+          phone: orderPayload.customer?.phone || '',
+          email: orderPayload.customer?.email || '',
+          address: orderPayload.customer?.address || '',
+          city: orderPayload.customer?.city || '',
+        },
+
+        bulk_quantity: 0,
+        computed_units: orderPayload.computed_units ?? units,
+        total: orderPayload.total ?? grandTotal,
+
+        products: orderPayload.products ?? [],
+        addons: orderPayload.addons ?? [],
+
+        file_urls: orderPayload.file_urls ?? '',
+        dropbox_urls: orderPayload.dropbox_urls ?? '',
+
+        uploads: orderPayload.uploads ?? {},
+
+        analysis: {
+          primary: orderPayload.analysis?.primary
+            ? {
+                ratio: orderPayload.analysis.primary.ratio || '',
+                resolution: orderPayload.analysis.primary.resolution || '',
+              }
+            : { ratio: '', resolution: '' },
+          assist: orderPayload.analysis?.assist
+            ? {
+                ratio: orderPayload.analysis.assist.ratio || '',
+                resolution: orderPayload.analysis.assist.resolution || '',
+              }
+            : { ratio: '', resolution: '' },
+        },
+
+        notes: '',
+        chat_context: '',
+
+        // For convenience in Pabbly
+        payment_link: payUrl,
+      };
+
+      // Send to Pabbly as x-www-form-urlencoded so all fields are captured
+      const form = new URLSearchParams();
+      for (const [k, v] of Object.entries(pabblyPayload)) {
+        form.append(k, (v !== null && typeof v === 'object') ? JSON.stringify(v) : String(v ?? ''));
+      }
       await fetch(PABBLY_WEBHOOK, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(orderPayload),
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: form.toString(),
       });
 
       // brief delay to avoid race with redirect

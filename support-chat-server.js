@@ -723,8 +723,75 @@ app.post('/api/escalate', async (req, res) => {
       return res.status(400).json({ ok: false, error: 'phone and question are required' });
     }
 
-    const result = await updateAdminTool({ name, phone, question });
-    // log the escalation attempt (with light masking)
+    const hook = 'https://connect.pabbly.com/workflow/sendwebhookdata/IjU3NjYwNTZhMDYzMDA0MzE1MjZhNTUzNTUxMzci_pc';
+    if (!hook) {
+      await logTurn({ ts:new Date().toISOString(), role:'server', event:'escalate_error', name, phone: phone.replace(/.(?=.{2})/g,'•'), error:'PABBLY_WEBHOOK_URL not set' });
+      return res.status(500).json({ ok:false, error:'webhook_not_configured' });
+    }
+
+    const payload = {
+      version: '1.0',
+      event: 'human_handshake',
+      source: 'bot',
+      timestamp: new Date().toISOString(),
+      page_url: req.headers.referer || '',
+
+      id: '',
+      order_hint: '',
+      is_assist: false,
+      is_bulk: false,
+
+      customer: {
+        name,
+        phone,
+        email: '',
+        address: '',
+        city: ''
+      },
+
+      bulk_quantity: 0,
+      computed_units: 0,
+      total: 0,
+
+      products: [],
+      addons: [],
+
+      file_urls: '',
+      dropbox_urls: '',
+
+      uploads: {},
+
+      analysis: {
+        primary: { ratio: '', resolution: '' },
+        assist:  { ratio: '', resolution: '' }
+      },
+
+      notes: question,
+      chat_context: ''
+    };
+
+    let ok = false, status = 0, text = '';
+    try {
+      // Send as x-www-form-urlencoded (Pabbly-friendly)
+      const form = new URLSearchParams();
+      for (const [k, v] of Object.entries(payload)) {
+        form.append(k, (v !== null && typeof v === 'object') ? JSON.stringify(v) : String(v ?? ''));
+      }
+
+      const resp = await fetch(hook, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: form.toString()
+      });
+      status = resp.status;
+      text = await resp.text();
+      ok = resp.ok;
+    } catch (e) {
+      text = e?.message || String(e);
+      ok = false;
+    }
+
+    // Log the attempt
     await logTurn({
       ts: new Date().toISOString(),
       role: 'server',
@@ -732,38 +799,27 @@ app.post('/api/escalate', async (req, res) => {
       name,
       phone: phone.replace(/.(?=.{2})/g, '•'),
       question: (question || '').slice(0, 160),
-      ok: !!result?.success
+      ok,
+      status
     });
 
-    if (result.success) {
-      return res.json({
-        ok: true,
-        message: 'הפרטים הועברו לנציג 👩‍💼 נחזור אליך בהקדם.',
-        sentTo: result.sentTo || null
-      });
-    } else {
-      // also record failure in log
-      await logTurn({
-        ts: new Date().toISOString(),
-        role: 'server',
-        event: 'escalate_error',
-        name,
-        phone: phone.replace(/.(?=.{2})/g, '•'),
-        error: result.error || 'Failed to notify admin'
-      });
-      return res.status(502).json({
-        ok: false,
-        error: result.error || 'Failed to notify admin'
-      });
+    if (ok) {
+      return res.json({ ok: true, message: 'הפרטים נשלחו. נחזור אליך בהקדם.' });
     }
-  } catch (err) {
-    console.error('/api/escalate error', err?.message || err);
+
     await logTurn({
       ts: new Date().toISOString(),
       role: 'server',
-      event: 'escalate_exception',
-      error: err?.message || String(err)
+      event: 'escalate_error',
+      name,
+      phone: phone.replace(/.(?=.{2})/g, '•'),
+      error: text || 'Failed to POST to Pabbly',
+      status
     });
+    return res.status(502).json({ ok: false, error: 'failed_to_forward' });
+  } catch (err) {
+    console.error('/api/escalate error', err?.message || err);
+    await logTurn({ ts:new Date().toISOString(), role:'server', event:'escalate_exception', error: err?.message || String(err) });
     return res.status(500).json({ ok: false, error: 'internal_error' });
   }
 });

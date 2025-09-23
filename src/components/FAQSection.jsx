@@ -38,8 +38,18 @@ const FAQSection = () => {
           <br />
           אם תרצה עזרה נוספת,&nbsp;
           <a
-            href="#customer-details"
-            className="text-blue-600 underline hover:text-blue-800"
+            href="#preview"
+            onClick={(e) => {
+              e.preventDefault();
+              try { localStorage.setItem('open_assist', 'true'); } catch {}
+              const el = document.querySelector('#preview');
+              if (el) {
+                setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 40);
+              } else {
+                window.location.hash = '#preview';
+              }
+            }}
+            className="text-blue-600 underline hover:text-blue-800 cursor-pointer"
           >
             פתחו את טופס עזרה בהכנת קובץ
           </a>

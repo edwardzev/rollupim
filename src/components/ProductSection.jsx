@@ -19,6 +19,7 @@ const ProductSection = () => {
       price: 59,
       description: 'בד מודפס באיכות גבוהה בלבד',
       features: ['הדפסה באיכות HD', 'בד עמיד ואיכותי', 'גודל: 85x200 ס"מ'],
+      isSet: false,
     },
     {
       id: 'stand',
@@ -26,6 +27,7 @@ const ProductSection = () => {
       price: 99,
       description: 'סטנד רולאפ איכותי בלבד',
       features: ['סטנד אלומיניום קל', 'מנגנון פתיחה חלק', 'מתאים לבד בגודל 85x200 ס"מ'],
+      isSet: false,
     },
     {
       id: 'complete',
@@ -34,6 +36,7 @@ const ProductSection = () => {
       description: 'הכל ביחד - הכי משתלם!',
       features: ['בד מודפס + סטנד', 'הוראות הרכבה מפורטות', 'אחריות מלאה'],
       popular: true,
+      isSet: true,
     },
   ];
 
@@ -68,6 +71,9 @@ const ProductSection = () => {
   // helper: total units selected
   const units = products.reduce((sum, p) => sum + (quantities[p.id] || 0), 0);
 
+  // helper: count only full "set" units (for assembly pricing)
+  const setUnits = products.reduce((sum, p) => sum + (p.isSet ? (quantities[p.id] || 0) : 0), 0);
+
   useEffect(() => {
     const calculateTotal = () => {
       const productsTotal = products.reduce(
@@ -80,7 +86,7 @@ const ProductSection = () => {
         const addon = addons.find((a) => a.id === addonId);
         if (!addon) return sum;
         const perUnit = addon.id === 'assembly' || (addon.name || '').includes('הרכבה');
-        const qty = perUnit ? Math.max(units, 0) : 1;
+        const qty = perUnit ? Math.max(setUnits, 0) : 1; // assembly applies to sets only
         return sum + (addon.price || 0) * qty;
       }, 0);
 
@@ -223,9 +229,9 @@ const ProductSection = () => {
               {addons.map((addon) => {
                 // Show computed price for assembly per unit; others once
                 const perUnit = addon.id === 'assembly' || (addon.name || '').includes('הרכבה');
-                const displayQty = perUnit ? Math.max(units, 0) : 1;
+                const displayQty = perUnit ? Math.max(setUnits, 0) : 1; // show count for sets only
                 const displayPrice =
-                  addon.price > 0 ? addon.price * (perUnit ? Math.max(units, 0) : 1) : 0;
+                  addon.price > 0 ? addon.price * (perUnit ? Math.max(setUnits, 0) : 1) : 0;
 
                 return (
                   <div
@@ -239,7 +245,7 @@ const ProductSection = () => {
                   >
                     <span className="font-medium text-gray-900">
                       {addon.name}
-                      {perUnit && units > 1 && (
+                      {perUnit && setUnits > 1 && (
                         <span className="text-gray-500 mr-2 text-sm">× {displayQty}</span>
                       )}
                     </span>

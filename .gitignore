@@ -1,3 +1,4 @@
 .env
 logs/
 content/kb_hits.json
+.vercel
