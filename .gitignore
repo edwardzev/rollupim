@@ -2,3 +2,5 @@
 logs/
 content/kb_hits.json
 .vercel
+node_modules
+.vite/
