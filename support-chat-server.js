@@ -167,6 +167,8 @@ const app = express();
 const allowedOrigins = [
   process.env.CORS_ORIGIN || 'http://localhost:5173',
   'http://127.0.0.1:5173',
+  'https://rollupim.co.il',
+  'https://www.rollupim.co.il',
 ];
 // allow any *.vercel.app
 const vercelRe = /\.vercel\.app$/;
@@ -816,7 +818,7 @@ app.post('/api/escalate', async (req, res) => {
       error: text || 'Failed to POST to Pabbly',
       status
     });
-    return res.status(502).json({ ok: false, error: 'failed_to_forward' });
+    return res.status(502).json({ ok: false, error: 'failed_to_forward', details: text || '' });
   } catch (err) {
     console.error('/api/escalate error', err?.message || err);
     await logTurn({ ts:new Date().toISOString(), role:'server', event:'escalate_exception', error: err?.message || String(err) });

@@ -4,3 +4,9 @@ content/kb_hits.json
 .vercel
 node_modules
 .vite/
+.env*.local
+
+# env files
+.env*
+*.env
+.vercel

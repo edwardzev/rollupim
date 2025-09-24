@@ -53,6 +53,7 @@ function buildICountPayUrl({
 /* --------------------------------- helpers --------------------------------- */
 const safeParse = (s) => { try { return JSON.parse(s); } catch { return null; } };
 
+
 const getUnitsFromOrder = (od) => {
   if (Number(od?.quantity) > 0) return Number(od.quantity);
   const prods = Array.isArray(od?.products) ? od.products : [];
@@ -63,6 +64,17 @@ const getUnitsFromOrder = (od) => {
     const v = Number(od?.[k]); if (v > 0) return v;
   }
   return 1;
+};
+// Number of full sets ("complete" product) in the order
+const getSetsFromOrder = (od) => {
+  const prods = Array.isArray(od?.products) ? od.products : [];
+  let sets = 0;
+  for (const p of prods) {
+    const id = String(p?.id ?? '').toLowerCase();
+    const qty = Number(p?.quantity ?? p?.qty ?? 0) || 0;
+    if (id === 'complete') sets += qty;
+  }
+  return sets;
 };
 
 const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -193,6 +205,7 @@ const CustomerDetailsSection = () => {
       });
 
       const units = getUnitsFromOrder(od);
+      const sets = getSetsFromOrder(od);
 
       const productsTotal = (od.products || []).reduce((sum, p) => {
         const price = Number(p?.price || 0);
@@ -204,9 +217,10 @@ const CustomerDetailsSection = () => {
         const price = Number(a?.price ?? a?.amount ?? 0);
         const id = String(a?.id ?? '').toLowerCase();
         const name = String(a?.name ?? a?.label ?? '').toLowerCase();
-        const perUnit = id === 'assembly' || name.includes('הרכבה');
-        const qty = Number(a?.quantity) > 0 ? Number(a.quantity) : (perUnit ? units : 1);
-        return sum + price * qty;
+        const isAssembly = id === 'assembly' || name.includes('הרכבה');
+        const perUnit = isAssembly || false; // only assembly is per set; others stay not-per-unit unless specified with quantity
+        const baseQty = Number(a?.quantity) > 0 ? Number(a.quantity) : (perUnit ? (isAssembly ? (sets || 0) : units) : 1);
+        return sum + price * baseQty;
       }, 0);
 
       const extra = Number(localStorage.getItem('checkout_extra_ils') || 0);
@@ -363,12 +377,14 @@ const CustomerDetailsSection = () => {
         return sum + price * qty;
       }, 0);
 
+      const setsNow = getSetsFromOrder(odNow);
       const addonsTotal = (odNow.addons || []).reduce((sum, a) => {
         const price = Number(a?.price ?? a?.amount ?? 0);
         const id = String(a?.id ?? '').toLowerCase();
         const name = String(a?.name ?? a?.label ?? '').toLowerCase();
-        const perUnit = id === 'assembly' || name.includes('הרכבה');
-        const qty = Number(a?.quantity) > 0 ? Number(a.quantity) : (perUnit ? units : 1);
+        const isAssembly = id === 'assembly' || name.includes('הרכבה');
+        const perUnit = isAssembly || false;
+        const qty = Number(a?.quantity) > 0 ? Number(a.quantity) : (perUnit ? (isAssembly ? (setsNow || 0) : units) : 1);
         return sum + price * qty;
       }, 0);
 
@@ -387,7 +403,8 @@ const CustomerDetailsSection = () => {
       const addonIdsSelected = new Set((odNow.addons || []).map(a => String(a.id)));
       const addon_lines = ADDON_CATALOG.map(a => {
         const selected = addonIdsSelected.has(a.id);
-        const qty = selected ? (a.perUnit ? units : 1) : 0;
+        const isAssembly = String(a.id).toLowerCase() === 'assembly' || String(a.name).toLowerCase().includes('הרכבה');
+        const qty = selected ? (isAssembly ? (setsNow || 0) : (a.perUnit ? units : 1)) : 0;
         return { id: a.id, name: a.name, price: a.price, quantity: qty };
       });
       if (extra > 0) {
