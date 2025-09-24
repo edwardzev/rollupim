@@ -159,7 +159,7 @@ const BulkOffer = () => {
     } catch (err) {
       toast({
         title: 'שגיאה בשליחת הבקשה',
-        description: err.message || 'נסו שוב בעוד רגע.',
+        description: err.message || 'אנא נסו שוב בעוד רגע.',
         variant: 'destructive',
       });
     } finally {
