@@ -1,7 +1,8 @@
-export default async function handler(req: any, res: any) {
-  res.status(200).json({
-    hasToken: !!process.env.DROPBOX_TOKEN,
-    tokenLength: process.env.DROPBOX_TOKEN?.length || 0,
+export default function handler(_req: any, res: any) {
+  res.json({
+    hasRefresh: !!process.env.DROPBOX_REFRESH_TOKEN,
+    hasKey: !!process.env.DROPBOX_APP_KEY,
+    hasSecret: !!process.env.DROPBOX_APP_SECRET,
     now: new Date().toISOString(),
   });
 }
